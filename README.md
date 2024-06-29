@@ -1,7 +1,10 @@
 # Hachures
-A QGIS method to generate automated hachure lines. 
+A QGIS method to generate automated hachure lines. Like these:
 
-This is a work in progress. I'm sure bugs will be found. Meanwhile, the sample DEM provided works successfully for me, and the process can be run in about 5 minutes on it using the default settings in the scripts.
+<img width="486" alt="image" src="https://github.com/pinakographos/Hachures/assets/5448396/278f4127-dfae-443a-93b3-82075ea807b8">
+
+# Preamble
+**This is a work in progress.** I'm sure bugs will be found. Meanwhile, the sample DEM provided works successfully for me, and the process can be run in about 5 minutes on it using the default settings in the scripts.
 
 While this repo is public, I'm sharing the script in a limited fashion right now to get early feedback. Once I have made more tweaks I will launch it more fully into the cartographic community.
 
@@ -117,6 +120,6 @@ Iterating through the entire set of contours, we get a set of hachures that are 
 I also sometimes filter out the shortest stub lines for a more visually pleasing result.
 
 ### Final Thoughts 
-A denser `contourInterval` means lines are trimmed/begun more often, because we check their spacing at each contour. Irregular contour intervals would work here, too; it's not important that the contours be evenly spaced. More slopelines means more choices for the script to make about which line is the best running through each dash. That choice of "best" doesn't have to be on length, but that's what I've settled on for now, so that I prioritize hachures that run contiguously.
+A denser `contourInterval` means lines are trimmed/begun more often, because we check their spacing at each contour. This comes at a cost of more computation time, though. Irregular contour intervals would work here, too; it's not important that the contours be evenly spaced. More slopelines means more choices for the script to make about which line is the best running through each dash. That choice of "best" doesn't have to be on length, but that's what I've settled on for now, so that I prioritize hachures that run contiguously.
 
 Getting a good result takes time, and the script can run for several minutes or even hours, depending on the terrain size, and user parameters specified. I am working to make it more efficient, but I counsel patience in running this tool. This is one reason I have split it into two scripts. After running the first one, you may reivew its output and decide to make changes before running the second script, which is the longest to run.
