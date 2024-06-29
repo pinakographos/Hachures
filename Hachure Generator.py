@@ -642,7 +642,7 @@ lineSet = firstLine(contourLayers[0])
 for layer in contourLayers[1:]:
     if lineSet:
         newLineSet = spacingCheck(layer,lineSet)
-        lineSet = attribution(newLineSet)
+        lineSet = attribution(newLineSet,'Line')
     else:
         lineSet = firstLine(layer)
 
