@@ -1,7 +1,9 @@
 # Hachures
-A QGIS method to generate automated hachure lines
+A QGIS method to generate automated hachure lines. 
 
-This is a work in progress. I intend to eventually promote this script within the cartographic community, and potentially do publications and conference presentations on the method. However, first I want some feedback on it from select folks in the community to ensure that it's in good shape.
+This is a work in progress. I'm sure bugs will be found. Meanwhile, the sample DEM provided works successfully for me, and the process can be run in about 5 minutes on it using the default settings in the scripts.
+
+While this repo is public, I'm sharing the script in a limited fashion right now to get early feedback. Once I have made more tweaks I will launch it more fully into the cartographic community.
 
 There are two scripts. The first, "Preparation Work" takes a DEM and generates a variety of layers that will be needed to generate hachures. I separated this out from the main hachure script for now, because a user may wish to run this script, review the results, and maybe adjust parameters further before running the main hachure script, which is the second script.
 
