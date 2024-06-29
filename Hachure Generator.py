@@ -609,7 +609,24 @@ def makeAdditions(splits,contourLayer,currentSlopes):
     
     
     return linesToAdd
+
+def fieldUpdate(layer):
+    # Just adding fields was broken before for reasons unknown, so I had to
+    # made a new layer and copy everything over, for now
     
+    crs = QgsProject.instance().crs()
+    
+    tempLayer = QgsVectorLayer("LineString", "temp", "memory")
+    tempLayer.setCrs(crs)
+    with edit(tempLayer):
+        tempLayer.dataProvider().addFeatures(layer.getFeatures())
+    
+    attribution(tempLayer,'Line')
+    
+    # Update the attributes of the features
+    
+    return tempLayer
+
 #-----FUNCTIONS OVER------
 
 #Step 1: clone the slope line layer
@@ -642,7 +659,8 @@ lineSet = firstLine(contourLayers[0])
 for layer in contourLayers[1:]:
     if lineSet:
         newLineSet = spacingCheck(layer,lineSet)
-        lineSet = attribution(newLineSet,'Line')
+        cleaned = fieldUpdate(newLineSet)
+        lineSet = cleaned
     else:
         lineSet = firstLine(layer)
 
