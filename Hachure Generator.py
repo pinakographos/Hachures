@@ -146,33 +146,13 @@ def splitSpacing(slope):
     
     return spacing
     
-def getAverageSlope(contourSnippet):
+def getAverageSlope(contourSnippet: QgsFeature):
 
     #this function gets a line feature passed to it, and returns the avg slope that that feature covers
-    
-    #first we need to shove this feature into a layer so we can easily densify it.
-    #instead of using QGIS processing, I could potentially later on speed this up by sampling the feature's vertices and densifying it within the script
-    
-    
-    tempLayer = QgsVectorLayer("LineString", "temp", "memory")
-    tempLayer.setCrs(crs)
-    with edit(tempLayer):
-            tempLayer.dataProvider().addFeatures([contourSnippet])
 
-  
-    #ok, add points approximatly every pixel width along the line
-    
-    params = {
-        'INPUT': tempLayer,
-        'OUTPUT': 'TEMPORARY_OUTPUT',
-        'INTERVAL': avgPixel
-    }
-    
-    densified = processing.run('qgis:densifygeometriesgivenaninterval',params)['OUTPUT']
-    line = next(densified.getFeatures())
-    lineGeo = line.geometry().asPolyline()
-    vertices = [(vertex.x(), vertex.y()) for vertex in lineGeo]
-    
+    geometry = contourSnippet.geometry()
+    densified_line = geometry.densifyByDistance(avgPixel)
+    vertices = [(vertex.x(), vertex.y()) for vertex in densified_line.vertices()]
     
     rcTuples = [xy2rc(c) for c in vertices]
     
