@@ -43,7 +43,7 @@ We begin by dividing this contour line into chunks with the QGIS tool `splitline
 The script then assigns a few attributes to each split, including an ID number, its length, and most importantly, its average **slope**. Each split chunk is densified with extra vertices (spaced according to the pixel size of the slope raster), and then we use each vertex to sample the slope raster, and average it. So now we know the average slope covered by each split.
 
 ## Contour Splitting
-Using this slope information, along with the user parameters, we can determine how many slopelines should pass through the zone covered by this particular chunk of a contour line. Its average slope is compared to the `slopeMax` and `slopeMin`, and we use the `minSpacing` and `maxSpacing` parameters to determine how dense the slopelines should be here. Let's say that we have the following parameters:
+Using this slope information, along with the user parameters, we can determine how many hachures should pass through the zone covered by this particular chunk of a contour line. Its average slope is compared to the `slopeMax` and `slopeMin`, and we use the `minSpacing` and `maxSpacing` parameters to determine how dense the hachures should be here. Let's say that we have the following parameters:
 + `minSpacing = 2`
 + `maxSpacing = 10`
 + `slopeMin = 10`
@@ -92,7 +92,7 @@ It started at the outer contour and when it was checked against the next contour
 
 The script can also determine which contour chunks are **too long**. If a chunk touches 2 hachures and is very long, longer than its preferred spacing, it means those hachures have drifted too far apart for their current slope. We need to start at least 1 new line along this segment. This is done much as it is above: we split that chunk into dashes based on its slope, and then begin new hachures at the center of each dash.
 
-Finally, some contour chunks may not touch any slopelines, in which case we treat them as normal and split them into varying dash lengths based on the slope, and then give them a line running through each dash.
+Finally, some contour chunks may not touch any hachures, in which case we treat them as normal and split them into varying dash lengths based on the slope, and then give them a line running through each dash.
 
 Iterating through the entire set of contours, we get a set of hachures. They get clipped off as they get too close, and new lines begin again as they drift apart. Their spacing is controlled by the underlying slope.
 
