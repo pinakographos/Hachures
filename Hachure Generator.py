@@ -1,5 +1,24 @@
+# before 88
+import math
 import time
 import statistics
+
+from qgis.PyQt.QtCore import (
+    QVariant
+)
+from qgis.utils import iface
+from qgis.core import (
+    QgsProject,
+    QgsRasterLayer,
+    QgsVectorLayer,
+    QgsField,
+    QgsProcessingFeatureSourceDefinition,
+    QgsPointXY,
+    QgsGeometry,
+    QgsFeature,
+    edit
+)
+from qgis import processing
 
 #USER PARAMETERS
 #mind your units. 
