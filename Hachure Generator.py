@@ -1,4 +1,8 @@
 # before 88
+from typing import (
+    List,
+    Optional
+)
 import math
 import time
 import statistics
@@ -12,10 +16,12 @@ from qgis.core import (
     QgsRasterLayer,
     QgsVectorLayer,
     QgsField,
+    QgsMemoryProviderUtils,
     QgsProcessingFeatureSourceDefinition,
     QgsPointXY,
     QgsGeometry,
     QgsFeature,
+    QgsWkbTypes,
     edit
 )
 from qgis import processing
@@ -167,10 +173,9 @@ def getAverageSlope(contourSnippet: QgsFeature):
     return stats
     
 
-def contourSubstrings(tooLongLayer):
+def contourSubstrings(tooLongLayer: QgsVectorLayer) -> Optional[QgsVectorLayer]:
     #this func receives a layer of contour splits that were "too long" and may need 1 or more new slopelines to start among them
-    instance.addMapLayer(tooLongLayer,False)
-    outputLines = []
+    outputLineFeatures: List[QgsFeature] = []
     
     for feature in tooLongLayer.getFeatures():
         slope = feature.attributeMap()['Slope']
@@ -198,20 +203,19 @@ def contourSubstrings(tooLongLayer):
         startPoint = gapWidth
     
         endPoint = dashWidth + gapWidth
+
+        original_geometry = feature.geometry()
             
         tooLongLayer.selectByIds([feature.id()])
 
         while True:
+            substring_feature = QgsFeature()
+            substring_feature.setAttributes(feature.attributes())
+            line_substring = original_geometry.constGet().curveSubstring(
+                startPoint, endPoint)
+            substring_feature.setGeometry(line_substring)
 
-            #create the splits
-            params = {
-                'INPUT': QgsProcessingFeatureSourceDefinition(tooLongLayer.source(),selectedFeaturesOnly=True),
-                'START_DISTANCE': startPoint,
-                'END_DISTANCE': endPoint,
-                'OUTPUT':'TEMPORARY_OUTPUT'
-                }
-            output = processing.run("qgis:linesubstring",params)['OUTPUT']
-            outputLines.append(output)
+            outputLineFeatures.append(substring_feature)
 
             startPoint += dashGapLength
             endPoint += dashGapLength
@@ -219,36 +223,31 @@ def contourSubstrings(tooLongLayer):
             if endPoint > segmentLength:
 
                break
-
-    instance.removeMapLayer(tooLongLayer)
     
     #now let's join together all the output lines
 
-    if len(outputLines) > 0: #once again, in case our splits all ended up being too short
-        params = {
-        'LAYERS': outputLines,
-        'OUTPUT':'TEMPORARY_OUTPUT'
-        }
-            
-        merged = processing.run("qgis:mergevectorlayers",params)['OUTPUT']
-      
+    if len(outputLineFeatures) > 0: #once again, in case our splits all ended up being too short
+        merged_layer_fields = tooLongLayer.fields()
+        merged_layer_fields.append(
+            QgsField('SplitID', QVariant.Int)
+        )
+        merged_layer = QgsMemoryProviderUtils.createMemoryLayer(
+            'contour_substrings',
+            merged_layer_fields,
+            QgsWkbTypes.MultiLineString,
+            tooLongLayer.crs()
+        )
 
-        #once it comes back to us, we'll add an ID field
-        attributeMap = {}
-        field = QgsField('SplitID', QVariant.Int)
-        
-        with edit(merged):
-            merged.addAttribute(field)
-            merged.updateFields()
-            
-        ID_idx = merged.fields().indexFromName('SplitID')
-        for feature in merged.getFeatures():
-            attributeMap[feature.id()] = {ID_idx: feature.id()}
-            
+        for feature in outputLineFeatures:
+            output_feature = QgsFeature(merged_layer_fields)
+            output_feature.setGeometry(feature.geometry())
+            attributes = feature.attributes()
+            attributes.append(feature.id())
+            output_feature.setAttributes(attributes)
 
-        merged.dataProvider().changeAttributeValues(attributeMap)
-      
-        return merged
+            merged_layer.dataProvider().addFeature(output_feature)
+
+        return merged_layer
     
     else:
         return None 
