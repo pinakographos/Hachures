@@ -4,7 +4,7 @@ A QGIS method to generate automated hachure lines. Like these:
 <img width="486" alt="image" src="https://github.com/pinakographos/Hachures/assets/5448396/278f4127-dfae-443a-93b3-82075ea807b8">
 
 # Preamble
-**This is a work in progress.** I'm sure bugs will be found. Meanwhile, the sample DEM provided works successfully for me, and the process can be run in about 5 minutes on it using the default settings in the scripts. While this repo is public, I'm sharing the script in a limited fashion right now to get early feedback. Once I have made more tweaks I will launch it more fully into the cartographic community. I will hopefully also someday make it a more proper tool/plugin for QGIS, rather than a script. We'll see.
+**This is a work in progress.** I'm sure bugs will be found. Meanwhile, the sample DEM provided works successfully for me, and the process can be run in a couple of minutes on it using the default settings in the scripts and the example DEM. While this repo is public, I'm sharing the script in a limited fashion right now to get early feedback. Once I have made more tweaks I will launch it more fully into the cartographic community. I will hopefully also someday make it a more proper tool/plugin for QGIS, rather than a script. We'll see.
 
 Known bug: this generates various memory layers that you won't see in the table of contents, but which will show up on the dropdown menu for various QGIS tools. Still trying to track down where they are coming from.
 
@@ -103,4 +103,4 @@ Iterating through the entire set of contours, we get a set of hachures. They get
 A denser `contourInterval` means lines are trimmed/begun more often, because we check their spacing at each contour. This comes at a cost of more computation time, though. Irregular contour intervals would work here, too; it's not important that the contours be evenly spaced.
 Near the edges of a DEM, you might get some odd lines. I recommend generating hachures on a slightly larger area than you need them. I also sometimes filter out the shortest stub lines for a more visually pleasing result.
 
-Getting a good result takes time, and the script can run for several minutes or even hours, depending on the terrain size, and user parameters specified. I am working to make it more efficient, but I counsel patience in running this tool. The example DEM can be processed into hachures in a few minutes
+Getting a good result takes time, and the script can run for several minutes or even hours, depending on the terrain size, and user parameters specified. I am working to make it more efficient, but I counsel patience in running this tool. The example DEM can be processed into hachures in about 1½ on my particular computer, with the default user settings specified in the script. 
