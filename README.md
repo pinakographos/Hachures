@@ -4,9 +4,13 @@ A QGIS method to generate automated hachure lines. Like these:
 <img width="486" alt="image" src="https://github.com/pinakographos/Hachures/assets/5448396/278f4127-dfae-443a-93b3-82075ea807b8">
 
 # Preamble
-**This is a work in progress.** I'm sure bugs will be found. Meanwhile, the sample DEM provided works successfully for me, and the process can be run in a couple of minutes on it using the default settings in the scripts and the example DEM. While this repo is public, I'm sharing the script in a limited fashion right now to get early feedback. Once I have made more tweaks I will launch it more fully into the cartographic community. I will hopefully also someday make it a more proper tool/plugin for QGIS, rather than a script. We'll see.
+**This is a work in progress.** I'm sure bugs & inefficiencies will be found. Meanwhile, the sample DEM provided works successfully for me, and the process can be run in a couple of minutes on it using the default settings in the scripts and the example DEM. While this repo is public, I'm sharing the script in a limited fashion right now to get early feedback. Once it's more ready, I'll launch it more fully into the cartographic community.
 
-Known bug: this generates various memory layers that you won't see in the table of contents, but which will show up on the dropdown menu for various QGIS tools. Still trying to track down where they are coming from.
+Known bug: this generates various memory layers that you won't see in the table of contents, but which will show up on the dropdown menu for various QGIS tools.
+
+Thanks to Nyall Dawson for some significant efficiency gains!
+
+# Walkthrough
 
 Let's dive into a high-level review of how all this works. My method, built up organically over weeks of trial and error, is sometimes inelegant on account of the nature of its creation process, but it is effective. It is my hope that it will be a platform upon which others (perhaps including me) will build improved methods using fresh ideas.
 
