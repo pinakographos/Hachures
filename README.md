@@ -6,8 +6,6 @@ A QGIS method to generate automated hachure lines. Like these:
 # Preamble
 **This is a work in progress.** I'm sure bugs & inefficiencies will be found. Meanwhile, the sample DEM provided works successfully for me, and the process can be run in a couple of minutes on it using the default settings in the scripts and the example DEM. While this repo is public, I'm sharing the script in a limited fashion right now to get early feedback. Once it's more ready, I'll launch it more fully into the cartographic community.
 
-Known bug: this generates various memory layers that you won't see in the table of contents, but which will show up on the dropdown menu for various QGIS tools.
-
 Thanks to Nyall Dawson for some significant efficiency gains!
 
 # Walkthrough
