@@ -1,4 +1,3 @@
-# before 88
 from typing import (
     List,
     Optional
@@ -35,7 +34,7 @@ maxSpacing = 4
 contourInterval = 1 #in DEM z units
 
 slopeMin = 15 #degrees
-slopeMax = 45
+slopeMax = 40
 
 #Preparatory work
 DEM = iface.activeLayer() #For now, the layer of interest must be selected
@@ -44,6 +43,7 @@ crs = instance.crs()
 start = time.time()
 spacingRange = maxSpacing - minSpacing
 slopeRange = slopeMax - slopeMin
+
 
 #----STEP 0: Derive slope, aspect, and contours using qgis/gdal built in tools------
 params = {
@@ -246,9 +246,9 @@ def contourSubstrings(tooLongLayer: QgsVectorLayer) -> Optional[QgsVectorLayer]:
             output_feature.setAttributes(attributes)
 
             merged_layer.dataProvider().addFeature(output_feature)
-
+        instance.addMapLayer(merged_layer,False)
         return merged_layer
-    
+        
     else:
         return None 
 
@@ -280,10 +280,7 @@ def clipToContour(contourPoly,linesToClip):
 
     return candidateLines
 
-
-
-
-            
+         
 #This is run on the first contour line to check which slopelines intersect it. It's a simplified version of the main loop function, spacingCheck, below.
 
 def firstLine(contour):
@@ -311,6 +308,7 @@ def firstLine(contour):
     
     if newOnes:
         additions = newLines(newOnes)
+    
         return additions
     else:
         return None
@@ -475,7 +473,7 @@ def spacingCheck(contour):
     
     #shove all longs into a single layer and pass it to the substring func
     #which will split each feature up into smaller dash-gap chunks
-    
+    madeAdditions = False
     if len(tooLong) > 0:
         
         tooLongLayer = QgsVectorLayer("LineString", "temp", "memory")
@@ -486,19 +484,20 @@ def spacingCheck(contour):
         attribution(tooLongLayer,'Split',True)
 
         newOnes = contourSubstrings(tooLongLayer)
-        
+  
         if newOnes: #this could come back with None so we must check
+            madeAdditions = True
             additions = newLines(newOnes)
-    
+            
+            
     
     params = {
     'LAYERS': [clippedLines,currentHachures],
     'OUTPUT':'TEMPORARY_OUTPUT'
     }
     
-    if len(tooLong) > 0:
-        if newOnes:
-            params['LAYERS'].append(additions)
+    if madeAdditions:
+        params['LAYERS'].append(additions)
         
     merged = processing.run("qgis:mergevectorlayers",params)['OUTPUT']
     
@@ -626,7 +625,8 @@ def newLines(splits):
   
     with edit(slopeLineLayer):    
         slopeLineLayer.dataProvider().addFeatures(featureList)
-        
+    
+    instance.removeMapLayer(splits)
     return slopeLineLayer
         
 def dist(one,two):
@@ -672,74 +672,89 @@ def fieldUpdate(layer):
     
     return tempLayer
 
+def calculate_difference(input_layer, overlay_layer):
+    input_features = [f for f in input_layer.getFeatures()]
+    overlay_features = [f for f in overlay_layer.getFeatures()]
 
+    output_features = []
+    for input_feature in input_features:
+        geom = input_feature.geometry()
+        for overlay_feature in overlay_features:
+            geom = geom.difference(overlay_feature.geometry())
+        if not geom.isEmpty():
+            output_feature = QgsFeature()
+            output_feature.setGeometry(geom)
+            output_feature.setAttributes(input_feature.attributes())
+            output_features.append(output_feature)
+    
+    # Create an in-memory layer for the output features
+    output_layer = QgsVectorLayer("Polygon", "diff_result", "memory")
+    output_layer.setCrs(crs)
+    output_layer.dataProvider().addFeatures(output_features)
+    
+    return output_layer
 
 #-----FUNCTIONS OVER------
 
 #-------STEP 1: Process the contours so that they are all in the needed format------
 #Each contour will be represented by a polygon showing all areas *higher* than that contour
 
-#First we ned to sort these to ensure we take them in the right order. They probably were already sorted in this order when made
-#but let's not chance it.
+#First we need to sort these to ensure we take them in the right order, from low elevation to high.
+#They probably were already sorted in this order when they were made, but let's not chance it.
 
-contourPolys = [(f.id(),f.attributeMap()['ELEV_MIN']) for f in filledContours.getFeatures()]
-contourPolys.sort(key = lambda x: x[1])
-#this list now holds tuples for each contour of the format (id, elevation)
+contourPolys = [f for f in filledContours.getFeatures()]
+contourPolys.sort(key = lambda x: x.attributeMap()['ELEV_MIN'])
 
-#---STEP 2A: Let's now make a simple rectangular layer covering the extent of our contours
+
+#---STEP 2A: Let's now make a simple rectangular polygon covering the extent of our contours
 extent = filledContours.extent()
-polygon = QgsGeometry.fromRect(extent)
-feature = QgsFeature()
-feature.setGeometry(polygon)
+boundaryPolygon = QgsGeometry.fromRect(extent)
 
-boundLayer = QgsVectorLayer("polygon", "temp", "memory")
-boundLayer.setCrs(crs)
-
-with edit(boundLayer):
-    boundLayer.dataProvider().addFeature(feature)
-
-#---STEP 2B: We need to iterate through each contour layer and subtract it from our simple rectangle
+#---STEP 2B: We need to iterate through each contour polygon and subtract it from our simple rectangle
 # Thus yielding rectangles with varying size holes
-    
-diffLayers = []
 
-for i in range(0,len(contourPolys)):
-    selection = [x[0] for x in contourPolys[0:i]] #grab the contour IDs for contour i and all which are at a lower elevation than it
-    filledContours.selectByIds(selection)
-    
-    params = {
-        'INPUT': boundLayer,
-        'OUTPUT': 'TEMPORARY_OUTPUT',
-        'OVERLAY': QgsProcessingFeatureSourceDefinition(filledContours.source(),selectedFeaturesOnly=True)
-    }
-    
-    diff = processing.run("qgis:difference",params)['OUTPUT']
-    diff.setName('{x}'.format(x = i))
-    
-    diffLayers.append(diff)
+contourGeoms = [f.geometry() for f in contourPolys] #grab contour geometries in a list
 
-#merge all these layers together when done, so we have all the different hole polygons
-params = {
-        'LAYERS': diffLayers,
-        'OUTPUT':'TEMPORARY_OUTPUT'
-        }
-            
-merged = processing.run("qgis:mergevectorlayers",params)['OUTPUT']
+#the loop below starts with our boundary rectangle, subtracts the lowest elevation poly from it, and stores
+#the result. It then subtracts the 2nd-lowest poly from that result and stores that. And then so on,
+#each time subtracting the next-lowest poly from the result of the last operation.
 
+resultGeom = boundaryPolygon
+results = []
+
+for geom in contourGeoms[:-1]: #we drop the last one because the last iteration will yield an empty geometry
     
+    resultGeom = resultGeom.difference(geom)
+    results.append(resultGeom)
+ 
+resultFeats = []
+contourHoldingLayer = QgsVectorLayer("polygon", "Contour Holding", "memory")
+contourHoldingLayer.setCrs(crs)
+
+#turn the geometries into features
+for geo in results:
+    feat = QgsFeature()
+    feat.setGeometry(geo)
+    resultFeats.append(feat)
+
+with edit(contourHoldingLayer):
+    contourHoldingLayer.dataProvider().addFeatures(resultFeats)
+    
+attribution(contourHoldingLayer,'Contour')
+
 #finally, convert this to lines
 params = {
-        'INPUT': merged,
+        'INPUT': contourHoldingLayer,
         'OUTPUT':'TEMPORARY_OUTPUT'
 }
 
 contourLayer = processing.run("qgis:polygonstolines",params)['OUTPUT']
-
+del contourHoldingLayer
 
 #----STEP 3: Split our contour layer into a list of layers, each containing one elevation level---#
 params = {
         'INPUT': contourLayer,
-        'FIELD': 'layer',
+        'FIELD': 'ContourID',
         'OUTPUT':'TEMPORARY_OUTPUT'
         }
 splitLayers = processing.run('qgis:splitvectorlayer',params)['OUTPUT_LAYERS']
@@ -747,7 +762,7 @@ splitLayers = processing.run('qgis:splitvectorlayer',params)['OUTPUT_LAYERS']
 contourLayers = [QgsVectorLayer(path) for path in splitLayers]
 
 #and then we also sort them so that we start with lowest elevation first
-contourLayers.sort(key = lambda x: int(list(x.getFeatures())[0].attributeMap()['layer']))
+contourLayers.sort(key = lambda x: int(list(x.getFeatures())[0].attributeMap()['ContourID']))
 currentHachures = None
 
 #---STEP 4: Iterate through contours to create hachures----#
@@ -757,6 +772,7 @@ currentHachures = None
 #Otherwise it moves to the next line and once again tries to generate a starting set of lines.
 
 for layer in contourLayers:
+
      if currentHachures:
          attribution(currentHachures,'Line')
          currentHachures = spacingCheck(layer)
