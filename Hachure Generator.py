@@ -1,3 +1,4 @@
+# before 88
 from typing import (
     List,
     Optional
@@ -255,31 +256,6 @@ def contourSubstrings(tooLongLayer: QgsVectorLayer) -> Optional[QgsVectorLayer]:
 
 #this next function clips all our slopelines by the contour
 #it keeps the part of the slopeline at a higher elevation than the contour
-
-def clipToContour(contourPoly,linesToClip):
-     
-    #we want to find all slopelines that intersect the poly, so that we only consider slopelines from the contour on up the slope.
-
-    params = {
-            'INPUT': linesToClip,
-            'OVERLAY': contourPoly,
-            'OUTPUT':'TEMPORARY_OUTPUT'
-            }
-            
-    candidateLines = processing.run("qgis:intersection", params)['OUTPUT']
-    
-
-    #let's add ID values and lengths after clipping the slopelines to the poly. We'll need these later
-    
-    attribution(candidateLines,'Line')
-   
-  
-    candidateLines.dataProvider().createSpatialIndex() #this will help future processes go faster
-
-    #these are all the lines that we want to check
-
-    return candidateLines
-
          
 #This is run on the first contour line to check which slopelines intersect it. It's a simplified version of the main loop function, spacingCheck, below.
 
@@ -317,6 +293,7 @@ def firstLine(contour):
 def spacingCheck(contour):
     global currentHachures
     #1st we run split w/ lines to split the contour according to the existing slopelines
+    
     
     params = {
             'INPUT': contour,
@@ -379,6 +356,7 @@ def spacingCheck(contour):
 
             
     interPoints = processing.run("qgis:extractspecificvertices",params)['OUTPUT']
+
     
     #now we buffer the intersection points a tiny bit — again because QGIS is bad at spatial joins
     
@@ -490,22 +468,19 @@ def spacingCheck(contour):
             additions = newLines(newOnes)
             
             
-    
-    params = {
-    'LAYERS': [clippedLines,currentHachures],
-    'OUTPUT':'TEMPORARY_OUTPUT'
-    }
+    toMerge = [clippedLines,currentHachures]
     
     if madeAdditions:
-        params['LAYERS'].append(additions)
+        toMerge.append(additions)
         
-    merged = processing.run("qgis:mergevectorlayers",params)['OUTPUT']
+    merged = merger(toMerge,'Hachures')
     
     
     return merged
 
 #this takes our lines that need to be clipped off once they touch a contour, and does so
 def haircut(contour,toClipLayer):
+    
     params = {
             'INPUT': contour,
             'OUTPUT':'TEMPORARY_OUTPUT'
@@ -530,31 +505,20 @@ def haircut(contour,toClipLayer):
     
     return clippedLines
     
-#this function takes our split dashes and (1) figures out which of our mass of slopelines are candidates, and
-#(2) figures out the longest through each dash.
 
 def newLines(splits):
     
     attribution(splits,'Split')
-    #first we need the middle point in each line; we grow a slopeline from that middle
-    
-    instance.addMapLayer(splits, False)
-    pointLayers = []
+    #first we need the middle point in each line; we grow our hachure out from that middle  
+    pointCoords = []
     
     for feat in splits.getFeatures():
-        id = feat.id()
-        length = feat.attributeMap()['SplitLength']
-        splits.selectByIds([id])
-    
-        params = {
-            'INPUT': QgsProcessingFeatureSourceDefinition(splits.source(),selectedFeaturesOnly=True),
-            'DISTANCE': length / 2,
-            'OUTPUT':'TEMPORARY_OUTPUT'
-        }
-    
-        pointLayers.append(processing.run('qgis:interpolatepoint',params)['OUTPUT'])
-    
-    pointCoords = [getPointCoords(x) for x in pointLayers]
+        geometry = feat.geometry()
+        midpoint = geometry.length() / 2
+        
+        midpoint = geometry.interpolate(midpoint)        
+        
+        pointCoords.append(midpoint.asPoint())
     
     #we now have a list of all median line points
     #let's next loop through them to plot out the lines
@@ -672,27 +636,21 @@ def fieldUpdate(layer):
     
     return tempLayer
 
-def calculate_difference(input_layer, overlay_layer):
-    input_features = [f for f in input_layer.getFeatures()]
-    overlay_features = [f for f in overlay_layer.getFeatures()]
 
-    output_features = []
-    for input_feature in input_features:
-        geom = input_feature.geometry()
-        for overlay_feature in overlay_features:
-            geom = geom.difference(overlay_feature.geometry())
-        if not geom.isEmpty():
-            output_feature = QgsFeature()
-            output_feature.setGeometry(geom)
-            output_feature.setAttributes(input_feature.attributes())
-            output_features.append(output_feature)
-    
-    # Create an in-memory layer for the output features
-    output_layer = QgsVectorLayer("Polygon", "diff_result", "memory")
-    output_layer.setCrs(crs)
-    output_layer.dataProvider().addFeatures(output_features)
-    
-    return output_layer
+#simple func that merges layers together slightly faster than calling processing
+def merger(layers,name):
+    outputLayer = QgsVectorLayer('Linestring',name,'memory')
+    outputLayer.setCrs(crs)
+  
+
+    allFeats = []
+    for layer in layers:
+        allFeats += [feat for feat in layer.getFeatures()]
+
+    with edit(outputLayer):
+        outputLayer.dataProvider().addFeatures(allFeats)
+
+    return outputLayer
 
 #-----FUNCTIONS OVER------
 
@@ -731,41 +689,45 @@ resultFeats = []
 contourHoldingLayer = QgsVectorLayer("polygon", "Contour Holding", "memory")
 contourHoldingLayer.setCrs(crs)
 
-#turn the geometries into features
+#And finally we turn these into lines
+contourLines = []
 for geo in results:
-    feat = QgsFeature()
-    feat.setGeometry(geo)
-    resultFeats.append(feat)
-
-with edit(contourHoldingLayer):
-    contourHoldingLayer.dataProvider().addFeatures(resultFeats)
+    if geo.isMultipart():
+        
+        allPolys = geo.asMultiPolygon()
+        
+        #pull out every ring used in every poly in this multipoly
+        
+        allRings = [ring for poly in allPolys for ring in poly] 
+        
+        
+    else:
+        rings = geo.asPolygon()
+        
+        allRings = [ring for ring in rings]
     
-attribution(contourHoldingLayer,'Contour')
+    lineGeometry = QgsGeometry.fromMultiPolylineXY(allRings)
+    
+    lineFeat = QgsFeature()
+    lineFeat.setGeometry(lineGeometry)
+    contourLines.append(lineFeat)
 
-#finally, convert this to lines
-params = {
-        'INPUT': contourHoldingLayer,
-        'OUTPUT':'TEMPORARY_OUTPUT'
-}
+#----STEP 3: We put each contour feature in its own layer for further processing---#
+#(Ideally we'll later on be able to just with with the feats directly)
 
-contourLayer = processing.run("qgis:polygonstolines",params)['OUTPUT']
-del contourHoldingLayer
+contourLayers = []
+for contourLine in contourLines:
+    contourLayer = QgsVectorLayer("multilinestring", "Single Contour Holding Layer", "memory")
+    contourLayer.setCrs(crs)
 
-#----STEP 3: Split our contour layer into a list of layers, each containing one elevation level---#
-params = {
-        'INPUT': contourLayer,
-        'FIELD': 'ContourID',
-        'OUTPUT':'TEMPORARY_OUTPUT'
-        }
-splitLayers = processing.run('qgis:splitvectorlayer',params)['OUTPUT_LAYERS']
-
-contourLayers = [QgsVectorLayer(path) for path in splitLayers]
-
-#and then we also sort them so that we start with lowest elevation first
-contourLayers.sort(key = lambda x: int(list(x.getFeatures())[0].attributeMap()['ContourID']))
-currentHachures = None
+    with edit(contourLayer):
+        contourLayer.dataProvider().addFeatures([contourLine])
+        
+    contourLayers.append(contourLayer)
 
 #---STEP 4: Iterate through contours to create hachures----#
+
+currentHachures = None
 
 #as we iterate through, we may find that it takes a few layers before we hit a slope that has lines.
 #Early contour lines may easily be in areas where slope < minSlope. So each time, the if statement checks to see if we got anything back.
