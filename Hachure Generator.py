@@ -1,4 +1,3 @@
-# before 88
 from typing import (
     List,
     Optional
@@ -28,13 +27,13 @@ from qgis import processing
 
 #USER PARAMETERS
 #mind your units. 
-#A good starting min/max spacing is around a few times the pixel size of your DEM
-minSpacing = 2   #(in Map Units)
-maxSpacing = 4
+#A good starting min/max spacing is a few times the pixel size of your DEM, then adjust from there
+minSpacing = 5   #(in Map Units)
+maxSpacing = 5
 
-contourInterval = 1 #in DEM z units
+contourInterval = 0.5 #in DEM z units
 
-slopeMin = 15 #degrees
+slopeMin = 1 #degrees
 slopeMax = 40
 
 #Preparatory work
@@ -44,7 +43,7 @@ crs = instance.crs()
 start = time.time()
 spacingRange = maxSpacing - minSpacing
 slopeRange = slopeMax - slopeMin
-
+joinData = {}
 
 #----STEP 0: Derive slope, aspect, and contours using qgis/gdal built in tools------
 params = {
@@ -73,7 +72,75 @@ aspectBlock = aspectLayer.dataProvider().block(1, extent, cols, rows)
 avgPixel = 0.5 * (slopeLayer.rasterUnitsPerPixelX() + slopeLayer.rasterUnitsPerPixelY())
 jumpDistance = avgPixel * 3
 
+class newContour:
+    def __init__(self,contourFeature):
+        self.feat = contourFeature
+        self.geometry = contourFeature.geometry()
+        
+    def ringList(self):
+        
+        if self.geometry.isMultipart():
+            allRings = [QgsGeometry.fromPolylineXY(line) for line in self.geometry.asMultiPolyline()]
+        else:
+            allRings = [self.geometry]
+        return allRings
+        
+    def interSplit(self,hachureFeats):
+   
+        allFeats = []
+        
+        for lineGeo in self.ringList():
+            interPoints = []
 
+            for hachureFeat in hachureFeats:
+                hachureGeo = hachureFeat.geometry()
+            
+                if not lineGeo.intersection(hachureGeo).isEmpty():
+                    interPoints.append(lineGeo.intersection(hachureGeo))
+            
+                newPoints = []
+
+                for point in interPoints:
+                    if point.isMultipart():
+                        newPoints += [QgsGeometry.fromPointXY(p) for p in point.asMultiPoint()]
+                    else:
+                        newPoints += [point]
+                        
+            cutLengths = []
+            for point in newPoints:
+                cutPt = lineGeo.lineLocatePoint(point)
+                cutLengths.append(cutPt)
+            
+            cutFeatures = masterSplitter(lineGeo,cutLengths)
+            allFeats += cutFeatures
+        
+        return allFeats
+
+class newSegment:
+    def __init__(self,segFeature):
+        self.feature = segFeature
+        self.geometry = segFeature.geometry()
+        self.length = segFeature.geometry().length()
+        
+    def ringList(self):
+        return [self.geometry]
+        
+    def slope(self):
+        densified_line = self.geometry.densifyByDistance(avgPixel)
+        vertices = [(vertex.x(), vertex.y()) for vertex in densified_line.vertices()]
+        
+        rcTuples = [xy2rc(c) for c in vertices]
+        
+        values = [getVal(c,0) for c in rcTuples]
+            
+        #this is all the values sampled from the raster. Average it.
+        
+        try:
+            stats = statistics.fmean(values)
+        except:
+            return 0
+        return stats
+    
 
 #------FUNCTION DEFINITIONS--------
 
@@ -153,33 +220,13 @@ def splitSpacing(slope):
     
     return spacing
     
-def getAverageSlope(contourSnippet: QgsFeature):
 
-    #this function gets a line feature passed to it, and returns the avg slope that that feature covers
-
-    geometry = contourSnippet.geometry()
-    densified_line = geometry.densifyByDistance(avgPixel)
-    vertices = [(vertex.x(), vertex.y()) for vertex in densified_line.vertices()]
-    
-    rcTuples = [xy2rc(c) for c in vertices]
-    
-    values = [getVal(c,0) for c in rcTuples]
-        
-    #this is all the values sampled from the raster. Average it.
-    
-    try:
-        stats = statistics.fmean(values)
-    except:
-        return 0
-    return stats
-    
-
-def contourSubstrings(tooLongLayer: QgsVectorLayer) -> Optional[QgsVectorLayer]:
+def contourSubstrings(segmentList):
     #this func receives a layer of contour splits that were "too long" and may need 1 or more new slopelines to start among them
     outputLineFeatures: List[QgsFeature] = []
     
-    for feature in tooLongLayer.getFeatures():
-        slope = feature.attributeMap()['Slope']
+    for segment in segmentList:
+        slope = segment.slope()
         if slope < slopeMin:
             continue
                 
@@ -189,14 +236,13 @@ def contourSubstrings(tooLongLayer: QgsVectorLayer) -> Optional[QgsVectorLayer]:
         #this is much like Illustrator's function to align dashes
         
         totalLength = spacing * 2 #the length of a gap + dash + gap
-        segmentLength = feature.attributeMap()['SplitLength']
-        totalSplits = round(segmentLength / totalLength)
+        totalSplits = round(segment.length / totalLength)
         
         if totalSplits == 0:
             #This value was possible in older versions. Maybe not now; but let's catch it anyway.
             continue
         
-        dashGapLength = segmentLength / totalSplits
+        dashGapLength = segment.length / totalSplits
 
         dashWidth = dashGapLength / 2 # half of our gap-dash-gap is the dash
         gapWidth = dashWidth / 2
@@ -205,50 +251,29 @@ def contourSubstrings(tooLongLayer: QgsVectorLayer) -> Optional[QgsVectorLayer]:
     
         endPoint = dashWidth + gapWidth
 
-        original_geometry = feature.geometry()
-            
-        tooLongLayer.selectByIds([feature.id()])
+        original_geometry = segment.geometry
+
 
         while True:
             substring_feature = QgsFeature()
-            substring_feature.setAttributes(feature.attributes())
             line_substring = original_geometry.constGet().curveSubstring(
                 startPoint, endPoint)
             substring_feature.setGeometry(line_substring)
 
-            outputLineFeatures.append(substring_feature)
+            outputLineFeatures.append(newSegment(substring_feature))
 
             startPoint += dashGapLength
             endPoint += dashGapLength
 
-            if endPoint > segmentLength:
+            if endPoint > segment.length:
 
                break
     
     #now let's join together all the output lines
 
     if len(outputLineFeatures) > 0: #once again, in case our splits all ended up being too short
-        merged_layer_fields = tooLongLayer.fields()
-        merged_layer_fields.append(
-            QgsField('SplitID', QVariant.Int)
-        )
-        merged_layer = QgsMemoryProviderUtils.createMemoryLayer(
-            'contour_substrings',
-            merged_layer_fields,
-            QgsWkbTypes.MultiLineString,
-            tooLongLayer.crs()
-        )
-
-        for feature in outputLineFeatures:
-            output_feature = QgsFeature(merged_layer_fields)
-            output_feature.setGeometry(feature.geometry())
-            attributes = feature.attributes()
-            attributes.append(feature.id())
-            output_feature.setAttributes(attributes)
-
-            merged_layer.dataProvider().addFeature(output_feature)
-        instance.addMapLayer(merged_layer,False)
-        return merged_layer
+       
+        return outputLineFeatures
         
     else:
         return None 
@@ -260,27 +285,12 @@ def contourSubstrings(tooLongLayer: QgsVectorLayer) -> Optional[QgsVectorLayer]:
 #This is run on the first contour line to check which slopelines intersect it. It's a simplified version of the main loop function, spacingCheck, below.
 
 def firstLine(contour):
-    global currentSlopeLines
+
     #1st we divide initial contour into chunks
-   
-    params = {
-            'INPUT': contour,
-            'LENGTH': maxSpacing * 3,
-            'OUTPUT':'TEMPORARY_OUTPUT'
-            }
-            
-    splitLines = processing.run("qgis:splitlinesbylength",params)['OUTPUT']
-    
-    #next let's give the splits a needed attribute or two
-    
-    pv = splitLines.dataProvider()
+        
+    contourSegments = evenContourSplitter(contour,maxSpacing * 3)
 
-    attribution(splitLines,'Split',True)
-   
-    pv.createSpatialIndex() #this will help future processes go faster
-
-    #we split it into dashes according to its slope
-    newOnes = contourSubstrings(splitLines)
+    newOnes = contourSubstrings(contourSegments)
     
     if newOnes:
         additions = newLines(newOnes)
@@ -292,41 +302,33 @@ def firstLine(contour):
 #All subsequent contours past the first one are run through here.
 def spacingCheck(contour):
     global currentHachures
+
     #1st we run split w/ lines to split the contour according to the existing slopelines
     
+    currentHachureFeats = list(currentHachures.getFeatures())
     
-    params = {
-            'INPUT': contour,
-            'LINES': currentHachures,
-            'OUTPUT':'TEMPORARY_OUTPUT'
-            }
-            
-    preSplitLines = processing.run("qgis:splitwithlines",params)['OUTPUT']
+    preSplitLines = contour.interSplit(currentHachureFeats)
     
     #we need to then further subdivide this. It's possible that some of the splits
     #are so big that their slope calculations are no longer local
+    
+    splitLineFeats = []
+    
+    for segment in preSplitLines:
+        if segment.length > maxSpacing * 3:
+            splitLineFeats += evenContourSplitter(segment,maxSpacing * 3)
+        else:
+            splitLineFeats += [segment]
 
-    params = {
-            'INPUT': preSplitLines,
-            'LENGTH': maxSpacing * 3,
-            'OUTPUT':'TEMPORARY_OUTPUT'
-            }
-    splitLines = processing.run("qgis:splitlinesbylength",params)['OUTPUT']
-    
-    #next let's give the splits a needed attribute or two.
-    
-    attribution(splitLines,'Split',True)
-    
     tooShort = []
     tooLong = []
 
-    for feat in splitLines.getFeatures():
-        idealSpacing = splitSpacing(feat.attributeMap()['Slope'])
-        leng = feat.attributeMap()['SplitLength']
-        if idealSpacing == None or leng < idealSpacing:
-            tooShort.append(feat)
-        elif leng >= idealSpacing * 2:
-            tooLong.append(feat)
+    for segment in splitLineFeats:
+        idealSpacing = splitSpacing(segment.slope())
+        if idealSpacing == None or segment.length < idealSpacing:
+            tooShort.append(segment)
+        elif segment.length >= idealSpacing * 2:
+            tooLong.append(segment)
             
     #now we know which splits are (probably) too short and which are (probably) too long
     #and they exist in their own layers
@@ -344,9 +346,10 @@ def spacingCheck(contour):
     tooShortLayer = QgsVectorLayer("LineString", "temp", "memory")
     tooShortLayer.setCrs(crs)
     with edit(tooShortLayer):
-        tooShortLayer.dataProvider().addFeatures(tooShort)
+        tooShortLayer.dataProvider().addFeatures([s.feature for s in tooShort])
         
     attribution(tooShortLayer,'Split',True)
+    
         
     params = {
         'INPUT': tooShortLayer,
@@ -369,6 +372,7 @@ def spacingCheck(contour):
     buffers.dataProvider().createSpatialIndex()
     
     
+        
     params = {
         'INPUT' : buffers,
         'PREDICATE': [0],
@@ -380,8 +384,8 @@ def spacingCheck(contour):
     }
 
     joinLayer = processing.run('qgis:joinattributesbylocation',params)['OUTPUT']
-    
-    
+        
+        
     #now we can construct a dataset that tells us, for each split, which lines it touches
     #we only care about the splits that touch two lines
     #the rest are danglers of some sort
@@ -399,7 +403,7 @@ def spacingCheck(contour):
             
         if feat.attributeMap()['Slope'] < slopeMin:
             toClipBoth.append(id)
-        
+            
 
     #the neighbors dict now is of the form {SplitID: [lines it touches]}
     #need to clean it, as some lines only will touch one point due to ring closure issues    
@@ -454,14 +458,7 @@ def spacingCheck(contour):
     madeAdditions = False
     if len(tooLong) > 0:
         
-        tooLongLayer = QgsVectorLayer("LineString", "temp", "memory")
-        tooLongLayer.setCrs(crs)
-        with edit(tooLongLayer):
-            tooLongLayer.dataProvider().addFeatures(tooLong)
-            
-        attribution(tooLongLayer,'Split',True)
-
-        newOnes = contourSubstrings(tooLongLayer)
+        newOnes = contourSubstrings(tooLong)
   
         if newOnes: #this could come back with None so we must check
             madeAdditions = True
@@ -481,42 +478,40 @@ def spacingCheck(contour):
 #this takes our lines that need to be clipped off once they touch a contour, and does so
 def haircut(contour,toClipLayer):
     
-    params = {
-            'INPUT': contour,
-            'OUTPUT':'TEMPORARY_OUTPUT'
-            }
-    contourPrePoly = processing.run("qgis:linestopolygons", params)['OUTPUT']
+    contourGeo = contourDict[contour]
     
-    params = {
-            'INPUT': contourPrePoly,
-            'METHOD': 0,
-            'OUTPUT':'TEMPORARY_OUTPUT'
-            }
-            
-    contourPoly = processing.run("qgis:fixgeometries", params)['OUTPUT']
+    clippedLineGeos = []
+    for lineFeat in toClipLayer.getFeatures():
+        lineGeometry = lineFeat.geometry()
+        
+        result = lineGeometry.difference(contourGeo)
+        
+        clippedLineGeos.append(result)
     
-    params = {
-            'INPUT': toClipLayer,
-            'OVERLAY': contourPoly,
-            'OUTPUT':'TEMPORARY_OUTPUT'
-            }
-            
-    clippedLines = processing.run("qgis:difference",params)['OUTPUT']
+    clippedFeats = []
+    for geo in clippedLineGeos:
+        feat = QgsFeature()
+        feat.setGeometry(geo)
+        clippedFeats.append(feat)
+        
+    clippedLineLayer = QgsVectorLayer('linestring','Haircut Result','memory')
+    clippedLineLayer.setCrs(crs)
     
-    return clippedLines
-    
+    with edit(clippedLineLayer):
+        clippedLineLayer.dataProvider().addFeatures(clippedFeats)
+  
+    return clippedLineLayer
 
-def newLines(splits):
-    
-    attribution(splits,'Split')
+def newLines(segmentList):
+
     #first we need the middle point in each line; we grow our hachure out from that middle  
     pointCoords = []
     
-    for feat in splits.getFeatures():
-        geometry = feat.geometry()
-        midpoint = geometry.length() / 2
+    for segment in segmentList:
         
-        midpoint = geometry.interpolate(midpoint)        
+        midpoint = segment.length / 2
+        
+        midpoint = segment.geometry.interpolate(midpoint)        
         
         pointCoords.append(midpoint.asPoint())
     
@@ -590,7 +585,6 @@ def newLines(splits):
     with edit(slopeLineLayer):    
         slopeLineLayer.dataProvider().addFeatures(featureList)
     
-    instance.removeMapLayer(splits)
     return slopeLineLayer
         
 def dist(one,two):
@@ -619,29 +613,10 @@ def getPointCoords(layer):
     return(pointCoords)
         
         
-def fieldUpdate(layer):
-    # Just adding fields was broken before for reasons unknown, so I had to
-    # made a new layer and copy everything over, for now
-    
-    crs = QgsProject.instance().crs()
-    
-    tempLayer = QgsVectorLayer("LineString", "temp", "memory")
-    tempLayer.setCrs(crs)
-    with edit(tempLayer):
-        tempLayer.dataProvider().addFeatures(layer.getFeatures())
-    
-    attribution(tempLayer,'Line')
-    
-    # Update the attributes of the features
-    
-    return tempLayer
-
-
 #simple func that merges layers together slightly faster than calling processing
 def merger(layers,name):
     outputLayer = QgsVectorLayer('Linestring',name,'memory')
     outputLayer.setCrs(crs)
-  
 
     allFeats = []
     for layer in layers:
@@ -651,6 +626,53 @@ def merger(layers,name):
         outputLayer.dataProvider().addFeatures(allFeats)
 
     return outputLayer
+
+def evenContourSplitter(contour,spacing):
+    #takes in a line feature and splits it into even segments
+    
+    outputLineFeatures = []
+        
+    for lineGeo in contour.ringList():
+        
+        segmentLength = lineGeo.length()
+        startPoint = 0
+        endPoint = spacing
+        
+        i = spacing
+        cutPoints = []
+        while i < segmentLength:
+            cutPoints.append(i)
+            i += spacing
+            
+        outputLineFeatures.extend(masterSplitter(lineGeo,cutPoints))
+
+    return outputLineFeatures
+
+
+
+        
+    
+def masterSplitter(lineGeometry,splitList):
+    
+    #Takes in a single line feature and splits it at specified locations according to a list
+    startPoint = 0
+    splitList.append(lineGeometry.length())
+    splitList.sort()
+    cutGeometries = []
+    
+    for cutPoint in splitList:
+        lineSubstring = lineGeometry.constGet().curveSubstring(startPoint,cutPoint)
+        startPoint = cutPoint
+        cutGeometries.append(lineSubstring)
+        
+    segments = []
+    for split in cutGeometries:
+        newFeat = QgsFeature()
+        newFeat.setGeometry(split)
+        segments.append(newSegment(newFeat))
+        
+    return segments
+
 
 #-----FUNCTIONS OVER------
 
@@ -677,21 +699,17 @@ contourGeoms = [f.geometry() for f in contourPolys] #grab contour geometries in 
 #the result. It then subtracts the 2nd-lowest poly from that result and stores that. And then so on,
 #each time subtracting the next-lowest poly from the result of the last operation.
 
-resultGeom = boundaryPolygon
-results = []
+workingGeometry = boundaryPolygon
+contourDifferences = []
 
 for geom in contourGeoms[:-1]: #we drop the last one because the last iteration will yield an empty geometry
     
-    resultGeom = resultGeom.difference(geom)
-    results.append(resultGeom)
- 
-resultFeats = []
-contourHoldingLayer = QgsVectorLayer("polygon", "Contour Holding", "memory")
-contourHoldingLayer.setCrs(crs)
+    workingGeometry = workingGeometry.difference(geom)
+    contourDifferences.append(workingGeometry)
 
 #And finally we turn these into lines
 contourLines = []
-for geo in results:
+for geo in contourDifferences:
     if geo.isMultipart():
         
         allPolys = geo.asMultiPolygon()
@@ -699,7 +717,6 @@ for geo in results:
         #pull out every ring used in every poly in this multipoly
         
         allRings = [ring for poly in allPolys for ring in poly] 
-        
         
     else:
         rings = geo.asPolygon()
@@ -710,20 +727,13 @@ for geo in results:
     
     lineFeat = QgsFeature()
     lineFeat.setGeometry(lineGeometry)
-    contourLines.append(lineFeat)
+    contourLines.append(newContour(lineFeat))
 
-#----STEP 3: We put each contour feature in its own layer for further processing---#
-#(Ideally we'll later on be able to just with with the feats directly)
+#STEP 3: We will need to use these contours in both polygon and in line form.
 
-contourLayers = []
-for contourLine in contourLines:
-    contourLayer = QgsVectorLayer("multilinestring", "Single Contour Holding Layer", "memory")
-    contourLayer.setCrs(crs)
-
-    with edit(contourLayer):
-        contourLayer.dataProvider().addFeatures([contourLine])
-        
-    contourLayers.append(contourLayer)
+contourDict = dict(zip(contourLines,contourDifferences))
+#This is a stopgap while I keep working on code efficiency. For now, we can look up the poly geometry
+#using the line layer.
 
 #---STEP 4: Iterate through contours to create hachures----#
 
@@ -733,13 +743,13 @@ currentHachures = None
 #Early contour lines may easily be in areas where slope < minSlope. So each time, the if statement checks to see if we got anything back.
 #Otherwise it moves to the next line and once again tries to generate a starting set of lines.
 
-for layer in contourLayers:
+for line in contourLines:
 
      if currentHachures:
          attribution(currentHachures,'Line')
-         currentHachures = spacingCheck(layer)
+         currentHachures = spacingCheck(line)
      else:
-         currentHachures = firstLine(layer)
+         currentHachures = firstLine(line)
          
 attribution(currentHachures,'Line') #update final attributes so that user can filter on line length
 currentHachures.setName('Hachures')
