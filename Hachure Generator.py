@@ -29,25 +29,18 @@ from qgis import processing
 # Mind your units! A good starting min/max spacing is a few times the
 # pixel size of your DEM, then adjust from there.
 
-min_spacing = 2  #in map units
-max_spacing = 6
+min_spacing = 5  #in map units
+max_spacing = 5
 
-contour_interval = 1 #in DEM z units
+contour_interval = 0.5 #in DEM z units
 
-min_slope = 15 #degrees
+min_slope = 1 #degrees
 max_slope = 40
 
 DEM = iface.activeLayer() #The layer of interest must be selected
 
 #============================PREPATORY WORK=============================
-#-----------------STEP 1: Set up some needed variables------------------
-
-instance = QgsProject.instance()
-crs = instance.crs()
-spacing_range = max_spacing - min_spacing
-slope_range = max_slope - min_slope
-
-#---------STEP 2: Get slope/aspect/contours using built in tools--------
+#---------STEP 1: Get slope/aspect/contours using built in tools--------
 parameters = {
     'INPUT': DEM,
     'OUTPUT': 'TEMPORARY_OUTPUT'
@@ -63,15 +56,19 @@ contour_path = processing.run('gdal:contour_polygon', parameters)['OUTPUT']
 
 filled_contours = QgsVectorLayer(contour_path, "Contour Layer", "ogr")
 
-#------------------STEP 3: Prepare rasters for reading------------------
+#--------STEP 2: Set up variables & prepare rasters for reading---------
+instance = QgsProject.instance()
+crs = instance.crs()
+spacing_range = max_spacing - min_spacing
+slope_range = max_slope - min_slope
 
 provider = slope_layer.dataProvider()
 extent = provider.extent()
 rows = slope_layer.height()
 cols = slope_layer.width()
-slopeBlock = provider.block(1, extent, cols, rows)
+slope_block = provider.block(1, extent, cols, rows)
 
-aspectBlock = aspect_layer.dataProvider().block(1, extent, cols, rows)
+aspect_block = aspect_layer.dataProvider().block(1, extent, cols, rows)
 
 cell_width = extent.width() / cols
 cell_height = extent.height() / rows
@@ -123,7 +120,7 @@ class Contour:
                     
             if len(intersection_points) > 0:
                 # If we found intersections, use them to cut the ring
-                contour_segments = pointDataSplitter(line_geometry,
+                contour_segments = cutpoint_splitter(line_geometry,
                                                 intersection_points)
                 all_segments += contour_segments
             else:
@@ -188,7 +185,6 @@ def xy_to_rc(location):
 
 #-------------------Samples the slope or aspect raster------------------
 def sample_raster(location,type = 0):
- 
     row,col = location
     
     if row >= rows or col >= cols or row < 0 or col < 0:
@@ -196,9 +192,9 @@ def sample_raster(location,type = 0):
         return 0
     
     if type == 0:
-        return slopeBlock.value(row,col)
+        return slope_block.value(row,col)
     else:
-        return aspectBlock.value(row,col)
+        return aspect_block.value(row,col)
         
 #-----------Given a slope, find the ideal spacing of hachures-----------
 def ideal_spacing(slope):
@@ -502,7 +498,6 @@ def even_splitter(contour):
 
 #---Takes a single line geometry and splits it at a list of locations---
 def master_splitter(line_geometry,cut_locations):
-
     start_point = 0
     cut_locations.append(line_geometry.length())
     cut_locations.sort()
@@ -521,8 +516,7 @@ def master_splitter(line_geometry,cut_locations):
     return segment_list
 
 #---Like master_splitter, but uses CutPoints instead of cut locations---
-def pointDataSplitter(line_geometry,CutPoint_list):
-   
+def cutpoint_splitter(line_geometry,CutPoint_list):
     CutPoint_list.sort(key = lambda x: x.cut_location)
     
     # CutPoints hold info on what hachure generated them; we want to add
