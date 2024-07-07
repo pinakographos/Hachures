@@ -1,9 +1,4 @@
-from typing import (
-    List,
-    Optional
-)
 import math
-import time
 import statistics
 
 from qgis.PyQt.QtCore import (
@@ -29,12 +24,12 @@ from qgis import processing
 # Mind your units! A good starting min/max spacing is a few times the
 # pixel size of your DEM, then adjust from there.
 
-min_spacing = 5  #in map units
-max_spacing = 5
+min_spacing = 2  #in map units
+max_spacing = 6
 
-contour_interval = 0.5 #in DEM z units
+contour_interval = 1 #in DEM z units
 
-min_slope = 1 #degrees
+min_slope = 15 #degrees
 max_slope = 40
 
 DEM = iface.activeLayer() #The layer of interest must be selected
@@ -216,7 +211,7 @@ def ideal_spacing(slope):
 #--Take Segments & turn them into dashed lines based on ideal spacing---
 def dash_maker(contour_segment_list):
     
-    output_line_features: List[QgsFeature] = []
+    output_segments = []
     
     for contour_segment in contour_segment_list:
         slope = contour_segment.slope
@@ -258,7 +253,7 @@ def dash_maker(contour_segment_list):
                 start_point, end_point)
             substring_feature.setGeometry(line_substring)
 
-            output_line_features.append(Segment(substring_feature))
+            output_segments.append(Segment(substring_feature))
 
             start_point += dash_gap_length
             end_point += dash_gap_length
@@ -266,8 +261,8 @@ def dash_maker(contour_segment_list):
             if end_point > contour_segment.length:
                break
 
-    if len(output_line_features) > 0:       
-        return output_line_features
+    if len(output_segments) > 0:       
+        return output_segments
         
     else:
         return None 
