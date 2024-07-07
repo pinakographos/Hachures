@@ -43,7 +43,6 @@ crs = instance.crs()
 start = time.time()
 spacingRange = maxSpacing - minSpacing
 slopeRange = slopeMax - slopeMin
-joinData = {}
 
 #----STEP 0: Derive slope, aspect, and contours using qgis/gdal built in tools------
 params = {
@@ -86,41 +85,52 @@ class newContour:
         return allRings
         
     def interSplit(self,hachureFeats):
-   
         allFeats = []
-        
-        for lineGeo in self.ringList():
-            interPoints = []
 
+        for lineGeo in self.ringList():
+
+            newPoints = []
             for hachureFeat in hachureFeats:
                 hachureGeo = hachureFeat.geometry()
-            
-                if not lineGeo.intersection(hachureGeo).isEmpty():
-                    interPoints.append(lineGeo.intersection(hachureGeo))
-            
-                newPoints = []
-
-                for point in interPoints:
+                point = lineGeo.intersection(hachureGeo)
+                if not point.isEmpty():
                     if point.isMultipart():
-                        newPoints += [QgsGeometry.fromPointXY(p) for p in point.asMultiPoint()]
+                        newPoints += [newCutPoint(QgsGeometry.fromPointXY(p),hachureFeat) for p in point.asMultiPoint()]
                     else:
-                        newPoints += [point]
-                        
-            cutLengths = []
+                        newPoints += [newCutPoint(point,hachureFeat)]
+
             for point in newPoints:
-                cutPt = lineGeo.lineLocatePoint(point)
-                cutLengths.append(cutPt)
+                    cutLoc = lineGeo.lineLocatePoint(point.geometry)
+                    point.cutLength = cutLoc
+                    
+            if len(newPoints) > 0:
+                cutFeatures = pointDataSplitter(lineGeo,newPoints)
+                allFeats += cutFeatures
+            else:
+                ringFeature = QgsFeature()
+                ringFeature.setGeometry(lineGeo)
+                allFeats.append(newSegment(ringFeature))
             
-            cutFeatures = masterSplitter(lineGeo,cutLengths)
-            allFeats += cutFeatures
-        
         return allFeats
 
 class newSegment:
     def __init__(self,segFeature):
         self.feature = segFeature
         self.geometry = segFeature.geometry()
-        self.length = segFeature.geometry().length()
+        self.length = self.geometry.length()
+        self.slope = self.slope()
+        self.hachures = []
+        
+
+        self.status = None
+        #status levels: 0 = this segment is under minimum slope, 1 = too short, 2 = too long
+        
+        if self.slope < slopeMin:
+            self.status = 0
+        elif self.length < splitSpacing(self.slope):
+            self.status = 1
+        elif self.length > splitSpacing(self.slope) * 2:
+            self.status = 2
         
     def ringList(self):
         return [self.geometry]
@@ -141,6 +151,11 @@ class newSegment:
             return 0
         return stats
     
+
+class newCutPoint:
+    def __init__(self,pointGeometry,hachureFeature):
+        self.geometry = pointGeometry
+        self.hachure = hachureFeature
 
 #------FUNCTION DEFINITIONS--------
 
@@ -226,7 +241,7 @@ def contourSubstrings(segmentList):
     outputLineFeatures: List[QgsFeature] = []
     
     for segment in segmentList:
-        slope = segment.slope()
+        slope = segment.slope
         if slope < slopeMin:
             continue
                 
@@ -285,7 +300,7 @@ def contourSubstrings(segmentList):
 #This is run on the first contour line to check which slopelines intersect it. It's a simplified version of the main loop function, spacingCheck, below.
 
 def firstLine(contour):
-
+    global currentHachures
     #1st we divide initial contour into chunks
         
     contourSegments = evenContourSplitter(contour,maxSpacing * 3)
@@ -293,7 +308,7 @@ def firstLine(contour):
     newOnes = contourSubstrings(contourSegments)
     
     if newOnes:
-        additions = newLines(newOnes)
+        currentHachures = newLines(newOnes)
     
         return additions
     else:
@@ -305,9 +320,7 @@ def spacingCheck(contour):
 
     #1st we run split w/ lines to split the contour according to the existing slopelines
     
-    currentHachureFeats = list(currentHachures.getFeatures())
-    
-    preSplitLines = contour.interSplit(currentHachureFeats)
+    preSplitLines = contour.interSplit(currentHachures)
     
     #we need to then further subdivide this. It's possible that some of the splits
     #are so big that their slope calculations are no longer local
@@ -322,13 +335,16 @@ def spacingCheck(contour):
 
     tooShort = []
     tooLong = []
+    toClipBoth = []
 
     for segment in splitLineFeats:
-        idealSpacing = splitSpacing(segment.slope())
-        if idealSpacing == None or segment.length < idealSpacing:
+    
+        if segment.status == 1:
             tooShort.append(segment)
-        elif segment.length >= idealSpacing * 2:
+        elif segment.status == 2:
             tooLong.append(segment)
+        elif segment.status == 0:
+            toClipBoth.append(segment)
             
     #now we know which splits are (probably) too short and which are (probably) too long
     #and they exist in their own layers
@@ -338,77 +354,7 @@ def spacingCheck(contour):
     
     #first, if a split is "too short," we need to confirm it touches exactly two slopelines
     #and then figure out what their identity is, because we need to clip one or both later
-    
-    #spatial joins in QGIS are very unreliable when features share exactly one point.
-    #so this is my workaround:
-        
-        
-    tooShortLayer = QgsVectorLayer("LineString", "temp", "memory")
-    tooShortLayer.setCrs(crs)
-    with edit(tooShortLayer):
-        tooShortLayer.dataProvider().addFeatures([s.feature for s in tooShort])
-        
-    attribution(tooShortLayer,'Split',True)
-    
-        
-    params = {
-        'INPUT': tooShortLayer,
-        'VERTICES': '0,-1',
-        'OUTPUT':'TEMPORARY_OUTPUT'
-        }
 
-            
-    interPoints = processing.run("qgis:extractspecificvertices",params)['OUTPUT']
-
-    
-    #now we buffer the intersection points a tiny bit — again because QGIS is bad at spatial joins
-    
-    params = {
-            'INPUT': interPoints,
-            'DISTANCE': 0.01,
-            'OUTPUT':'TEMPORARY_OUTPUT'
-            }
-    buffers = processing.run("qgis:buffer", params)['OUTPUT']
-    buffers.dataProvider().createSpatialIndex()
-    
-    
-        
-    params = {
-        'INPUT' : buffers,
-        'PREDICATE': [0],
-        'JOIN': currentHachures,
-        'METHOD': 0, # = intersect
-        'DISCARD_NONMATCHING':True,
-        'OUTPUT':'TEMPORARY_OUTPUT',
-        'JOIN_FIELDS': ['LineID','LineLength']
-    }
-
-    joinLayer = processing.run('qgis:joinattributesbylocation',params)['OUTPUT']
-        
-        
-    #now we can construct a dataset that tells us, for each split, which lines it touches
-    #we only care about the splits that touch two lines
-    #the rest are danglers of some sort
-    
-    neighbors = {}
-    toClipBoth = []
-    for feat in joinLayer.getFeatures():
-        
-        id = feat.attributeMap()['SplitID']
-        
-        if id not in neighbors:
-            neighbors[id] = [feat.attributeMap()]
-        else:
-            neighbors[id] += [feat.attributeMap()]
-            
-        if feat.attributeMap()['Slope'] < slopeMin:
-            toClipBoth.append(id)
-            
-
-    #the neighbors dict now is of the form {SplitID: [lines it touches]}
-    #need to clean it, as some lines only will touch one point due to ring closure issues    
-
-    splitsToKeep = [key for key in neighbors if len(neighbors[key]) == 2] #this is a series of IDs of splits to delete
     
     #we now know which splits are between slopelines that are too close
     #for these shorter ones, we need to keep the longest and clip the other.
@@ -416,39 +362,37 @@ def spacingCheck(contour):
     
     toClip = []
     
-    for split in splitsToKeep:
-        slopeLinesData = neighbors[split]
-
-        lineOne =slopeLinesData[0]
-        lineTwo =slopeLinesData[1]
+    for split in toClipBoth:
+        toClip.extend(split.hachures)
+    
+    for split in tooShort:
         
-        if split in toClipBoth:
-            toClip += [lineTwo['LineID'], lineOne['LineID']]
-        else:
-            #there are only two lines touching this split, so let's just compare each directly
-            if lineOne['LineLength'] > lineTwo['LineLength']:
-                toClip.append(lineTwo['LineID'])
+        hachures = split.hachures
+        if len(hachures) == 2:
+            lineOne = hachures[0].geometry().length()
+            lineTwo = hachures[1].geometry().length()
+            
+            if lineOne > lineTwo:
+                toClip.append(hachures[1])
             else:
-                toClip.append(lineOne['LineID'])
+                toClip.append(hachures[0])
     
+    #we know which slopelines from this set need clipping. There will be some duplicate situations
     
-    #we know which slopelines from this set need clipping. Put them in a layer.
-    
-    targets = [feat for feat in currentHachures.getFeatures() if feat.attributeMap()['LineID'] in toClip]
-    
-    
-    toClipLayer = QgsVectorLayer("LineString", "temp", "memory")
-    toClipLayer.setCrs(crs)
-    with edit(toClipLayer):
-        toClipLayer.dataProvider().addFeatures(targets) 
-                    
-    #and remove them from the existng layer
 
-    with edit(currentHachures):
-        toDelete = [f.id() for f in targets]
-        currentHachures.deleteFeatures(toDelete) 
+                    
+    #and remove them from the existing layer
+    #toClip can have duplicates. A hachure may have "too short" splits on each side, and both of them choose
+    #that particular hachure as the 1 that needs to be clipped off.
+    
+    toClip = list(set(toClip))
+
+    currentHachures = [f for f in currentHachures if f not in toClip]
+
         
-    clippedLines = haircut(contour,toClipLayer)
+    clippedLines = haircut(contour,toClip)
+    
+    currentHachures += list(set(clippedLines))
     
     #now we've clipped off some of the lines
     #Let's next deal with adding more in the "too long" splits
@@ -463,44 +407,23 @@ def spacingCheck(contour):
         if newOnes: #this could come back with None so we must check
             madeAdditions = True
             additions = newLines(newOnes)
-            
-            
-    toMerge = [clippedLines,currentHachures]
     
     if madeAdditions:
-        toMerge.append(additions)
-        
-    merged = merger(toMerge,'Hachures')
-    
-    
-    return merged
+        currentHachures += additions
 
 #this takes our lines that need to be clipped off once they touch a contour, and does so
-def haircut(contour,toClipLayer):
+def haircut(contour,hachuresToClip):
     
     contourGeo = contourDict[contour]
     
-    clippedLineGeos = []
-    for lineFeat in toClipLayer.getFeatures():
-        lineGeometry = lineFeat.geometry()
-        
-        result = lineGeometry.difference(contourGeo)
-        
-        clippedLineGeos.append(result)
-    
     clippedFeats = []
-    for geo in clippedLineGeos:
+    for lineFeat in hachuresToClip:
+        lineGeometry = lineFeat.geometry()
         feat = QgsFeature()
-        feat.setGeometry(geo)
+        feat.setGeometry(lineGeometry.difference(contourGeo))
         clippedFeats.append(feat)
-        
-    clippedLineLayer = QgsVectorLayer('linestring','Haircut Result','memory')
-    clippedLineLayer.setCrs(crs)
-    
-    with edit(clippedLineLayer):
-        clippedLineLayer.dataProvider().addFeatures(clippedFeats)
   
-    return clippedLineLayer
+    return clippedFeats
 
 def newLines(segmentList):
 
@@ -577,15 +500,8 @@ def newLines(segmentList):
             lineCoords += [(newx,newy)]
             
         featureList.append(makeLines(lineCoords))
-        
-    #now we put our line features into a layer
-    slopeLineLayer = QgsVectorLayer('LineString', 'Slopelines', 'memory')
-    slopeLineLayer.setCrs(QgsProject.instance().crs())
-  
-    with edit(slopeLineLayer):    
-        slopeLineLayer.dataProvider().addFeatures(featureList)
     
-    return slopeLineLayer
+    return featureList
         
 def dist(one,two):
     x1,y1 = one
@@ -647,32 +563,61 @@ def evenContourSplitter(contour,spacing):
         outputLineFeatures.extend(masterSplitter(lineGeo,cutPoints))
 
     return outputLineFeatures
-
-
-
-        
     
 def masterSplitter(lineGeometry,splitList):
-    
+
     #Takes in a single line feature and splits it at specified locations according to a list
     startPoint = 0
     splitList.append(lineGeometry.length())
     splitList.sort()
-    cutGeometries = []
+    
+    segments = []
+    #We just need to make another one that does some of the processing here.
     
     for cutPoint in splitList:
-        lineSubstring = lineGeometry.constGet().curveSubstring(startPoint,cutPoint)
-        startPoint = cutPoint
-        cutGeometries.append(lineSubstring)
         
-    segments = []
-    for split in cutGeometries:
+        lineSubstring = lineGeometry.constGet().curveSubstring(startPoint,cutPoint)
         newFeat = QgsFeature()
-        newFeat.setGeometry(split)
+        newFeat.setGeometry(lineSubstring)
         segments.append(newSegment(newFeat))
+        startPoint = cutPoint
         
     return segments
-
+def pointDataSplitter(lineGeometry,intakeList):
+   
+    intakeList.sort(key = lambda x: x.cutLength)
+    
+    #Takes in a single line feature and splits it at specified locations according to a list
+    
+    segments = []
+    #We just need to make another one that does some of the processing here.
+    
+    #add first segment
+    lineSubstring = lineGeometry.constGet().curveSubstring(0,intakeList[0].cutLength)
+    newFeat = QgsFeature()
+    newFeat.setGeometry(lineSubstring)
+    segments.append(newSegment(newFeat))
+    
+    for i in range(0,len(intakeList)-1):
+        startPoint = intakeList[i]
+        endPoint = intakeList[i+1]
+        startLoc = startPoint.cutLength
+        endLoc = endPoint.cutLength
+        lineSubstring = lineGeometry.constGet().curveSubstring(startLoc,endLoc)
+        newFeat = QgsFeature()
+        newFeat.setGeometry(lineSubstring)
+        segment = newSegment(newFeat)
+        segments.append(segment)
+        segment.hachures = [startPoint.hachure,endPoint.hachure]
+        
+    #add final segment
+    endLength = lineGeometry.length()
+    lineSubstring = lineGeometry.constGet().curveSubstring(intakeList[-1].cutLength,endLength)
+    newFeat = QgsFeature()
+    newFeat.setGeometry(lineSubstring)
+    segments.append(newSegment(newFeat))
+    
+    return segments
 
 #-----FUNCTIONS OVER------
 
@@ -746,14 +691,21 @@ currentHachures = None
 for line in contourLines:
 
      if currentHachures:
-         attribution(currentHachures,'Line')
-         currentHachures = spacingCheck(line)
+         spacingCheck(line)
      else:
-         currentHachures = firstLine(line)
+         firstLine(line)
          
-attribution(currentHachures,'Line') #update final attributes so that user can filter on line length
-currentHachures.setName('Hachures')
-instance.addMapLayer(currentHachures)
+
+# currentHachures.setName('Hachures')
+# instance.addMapLayer(currentHachures)
+
+hachureLayer = QgsVectorLayer('linestring','Hachures','memory')
+hachureLayer.setCrs(crs)
+
+with edit(hachureLayer):
+    hachureLayer.dataProvider().addFeatures(currentHachures)
+instance.addMapLayer(hachureLayer)
+
 instance.removeMapLayer(filledContours)
 
 print(time.time() - start)
