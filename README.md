@@ -1,16 +1,24 @@
 # Hachures
 A QGIS method to generate automated hachure lines. Like these:
 
-<img width="486" alt="image" src="https://github.com/pinakographos/Hachures/assets/5448396/278f4127-dfae-443a-93b3-82075ea807b8">
+![image](https://github.com/pinakographos/Hachures/assets/5448396/4b00b0da-652b-4a5b-ad4a-5857c175b8c6)
+
 
 # Preamble
 This is version 1.0, and so I'm sure bugs & inefficiencies will be found. Meanwhile, the sample DEM (of Michigamme Mountain) that is included in this repo should succesfully generate hachures within a few seconds on a modern computer using the default settings in the script.
 
 Thanks to Nyall Dawson for some significant efficiency gains!
 
+# Advice
+I'll lead with some of my advice on using the script, and then later on we'll talk about how it works. First off, **be patient**. This script cantake a long time to run, depending on the settings. While a 1000 × 1000px raster with a handful of hachures may process in seconds, if you want a detailed set of lines on a large terrain, it could potentially run for tens of minutes, or even stretch into hours. Start small, and then work your way up.
+
+Second, you should have a reasonably smooth terrain to begin with. Hachures aren’t meant to show a huge amount of detail in a landform. They will gently bend if the terrain (and thus the aspect raster) are smooth. If the terrain is detailed, the hachures will be jagged. I also note that smoothing the raster tends to speed the whole script.
+
+Finally, I often find the resulting hachures look best if you filter out some of the smallest stubs.
+
 # Walkthrough
 
-Let's dive into a high-level review of how all this works. My method, built up organically over weeks of trial and error, is perhaps inelegant on account of the nature of its creation process, but it is effective. It is my hope that it will be a platform upon which others (perhaps including me) will build improved methods using fresh ideas.
+Ok, let's dive into a high-level review of how all this works. My method, built up organically over weeks of trial and error, is perhaps inelegant on account of the nature of its creation process, but it is effective. It is my hope that it will be a platform upon which others (perhaps including me) will build improved methods using fresh ideas.
 
 ## Initial Parameters
 The user must select a DEM raster layer (`iface.activeLayer()`). They should also fill in a few parameters:
@@ -35,7 +43,7 @@ This is done in the script by creating a simple rectangle that matches the bound
 
 Now we are ready to begin hachure generation through the main loop of the script.
 
-## Contour setup
+## Contour Splitting
 The script iterates through the contour lines, starting with the lowest-elevation one. Based on how we generated these, this will be a closed loop (or set of closed loops) that, in polygon form, cover all areas **higher** than our contour's elevation.
 
 We begin by dividing this contour line into chunks, each being `max_spacing * 3` in width. This choice is somewhat arbitrary on my part, but the results seem to work pleasantly enough.
@@ -44,7 +52,7 @@ We begin by dividing this contour line into chunks, each being `max_spacing * 3`
 
 Each split chunk is then densified with extra vertices (spaced according to the pixel size of the slope raster). We use each vertex to sample the slope raster, and average the result. So now we know the average slope covered by each chunk, and store that on the chunk.
 
-## Contour Splitting
+## Contours to Dashes
 Using this slope information, along with the user parameters, we can determine how many hachures should pass through the zone covered by this particular chunk of a contour line (which the script calls a `Segment`). Its average slope is compared to the `max_slope` and `min_slope`, and we use the `min_spacing` and `max_spacing` parameters to determine how dense the hachures should be here. Let's say that we have the following parameters:
 + `min_spacing = 2`
 + `max_spacing = 10`
@@ -76,7 +84,7 @@ We then store our current set of hachures and move on to the next contour line i
 
 Before moving on, I want to note that the reason for starting hachures at these dashes is that making a set of dashes and gaps is used to enforce a **minimum** spacing between hachures. The gaps and dashes ensure that they cannot get too close.
 
-## Continuing upwards
+## Continuing Upwards
 
 We now move on to the **next** contour line (the second-lowest one). For this line, and any subsequent ones, there are a couple of changes to the procedure.
 
