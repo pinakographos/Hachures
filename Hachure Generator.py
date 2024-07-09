@@ -99,15 +99,15 @@ class Contour:
             for hachure_feature in current_hachures:
                 hachure_geometry = hachure_feature.geometry()
                 point = line_geometry.intersection(hachure_geometry)
-                if not point.isEmpty():
-                    if point.isMultipart():
-                        intersection_points += [CutPoint(
-                            QgsGeometry.fromPointXY(p),hachure_feature)
-                            for p in point.asMultiPoint()]
-                    else:
-                        intersection_points += [CutPoint(point,
-                                                   hachure_feature)]
-
+                if point.wkbType() == QgsWkbTypes.MultiPoint:
+                    intersection_points += [CutPoint(
+                        QgsGeometry.fromPointXY(p),hachure_feature)
+                        for p in point.asMultiPoint()]
+                elif point.wkbType() == QgsWkbTypes.Point:
+                    intersection_points += [CutPoint(point, hachure_feature)]
+                # The intersection can return Empty or (rarely) 
+                # a geometryCollection. We can safely skip over these
+            
             for point in intersection_points:
                 # This tells us where along the line to cut
                 point.cut_location = line_geometry.lineLocatePoint(
