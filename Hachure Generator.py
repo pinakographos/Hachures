@@ -1,6 +1,5 @@
 import math
 import statistics
-import time
 
 from collections import defaultdict
 
@@ -49,8 +48,10 @@ aspect_layer = QgsRasterLayer(
     processing.run('qgis:aspect', parameters)['OUTPUT'],'Aspect')
 
 parameters['INTERVAL'] = contour_interval
-filled_contours = QgsVectorLayer(processing.run('gdal:contour_polygon', parameters)['OUTPUT'], "Contour Layer", "ogr")
-line_contours = QgsVectorLayer(processing.run('gdal:contour', parameters)['OUTPUT'], "Contour Layer", "ogr")
+filled_contours = QgsVectorLayer(processing.run('gdal:contour_polygon',
+    parameters)['OUTPUT'], "Contour Layer", "ogr")
+line_contours = QgsVectorLayer(processing.run('gdal:contour',
+    parameters)['OUTPUT'], "Contour Layer", "ogr")
 
 
 #--------STEP 2: Set up variables & prepare rasters for reading---------
@@ -423,10 +424,12 @@ def hachure_generator(segment_list):
             value = sample_raster(rc,1) #get the aspect value
             slope = sample_raster(rc,0) #the slope, too
             if value == 0: # we're out of bounds of the raster
+                del line_coords[-1]
                 break
             
             if slope < min_slope:
                 #if we hit shallow slopes, lines should end
+                del line_coords[-1]
                 break
                 
             value += 180
