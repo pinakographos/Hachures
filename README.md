@@ -5,12 +5,12 @@ A QGIS method to generate automated hachure lines. Like these:
 
 
 # Preamble
-This is version 1.0, and so I'm sure bugs & inefficiencies will be found. Meanwhile, the sample DEM (of Michigamme Mountain) that is included in this repo should succesfully generate hachures within a few seconds on a modern computer using the default settings in the script.
+This is version 1.0, and so I'm sure bugs & inefficiencies will be found. Meanwhile, the sample DEM (of Michigamme Mountain) that is included in this repo should succesfully generate hachures within several seconds on a modern computer using the default settings in the script.
 
 Thanks to Nyall Dawson for some significant efficiency gains!
 
 # Advice
-I'll lead with some of my advice on using the script, and then later on we'll talk about how it works. First off, **be patient**. This script cantake a long time to run, depending on the settings. While a 1000 × 1000px raster with a handful of hachures may process in seconds, if you want a detailed set of lines on a large terrain, it could potentially run for tens of minutes, or even stretch into hours. Start small, and then work your way up.
+I'll lead with some of my advice on using the script, and then later on we'll talk about how it works. First off, **be patient**. This script cantake a long time to run, depending on the settings. While a 1000 × 1000px raster with a handful of hachures may process in seconds, if you want a detailed set of lines on a large terrain, it could potentially run for a long time. Start small, and then work your way up to more detail and larger terrains once you get a sense of how long it will take.
 
 Second, you should have a reasonably smooth terrain to begin with. Hachures aren’t meant to show a huge amount of detail in a landform. They will gently bend if the terrain (and thus the aspect raster) are smooth. If the terrain is detailed, the hachures will be jagged. I also note that smoothing the raster tends to speed the whole script.
 
@@ -21,10 +21,9 @@ Finally, I often find the resulting hachures look best if you filter out some of
 Ok, let's dive into a high-level review of how all this works. My method, built up organically over weeks of trial and error, is perhaps inelegant on account of the nature of its creation process, but it is effective. It is my hope that it will be a platform upon which others (perhaps including me) will build improved methods using fresh ideas.
 
 ## Initial Parameters
-The user must select a DEM raster layer (`iface.activeLayer()`). They should also fill in a few parameters:
-
-+ `contour_interval`. This script generates contour lines, and checks our hachure lines (more on that below) every contour.
-+ `min_spacing` and `max_spacing` specify, in map units, how close or how far apart we'd like our hachures to be.
+The user must select a DEM raster layer (`iface.activeLayer()`). The script comes with some default parameters, but the user may choose to adjust them:
++ `spacing_checks`: How many times the script will check that the hachures are properly spaced. Lowering this runs the script faster. But, it also makes hachure lines more likely to get closer or farther apart than they are supposed to. In reality, this parameter controls how many contour lines we generate across the vertical range of the DEM. Hachure spacing is checked every contour line.
++ `min_hachure_density` and `max_hachure_density`: These specify how close or how far apart we'd like our hachures to be. The units are the pixel size of the DEM.
 + `min_slope` and `max_slope` specify what slope levels we'll consider in making those hachures. The script makes hachures more dense when the slope of the terrain is higher, and spaces them out farther on shallower terrain. The closer a slope gets toward `max_slope`, the denser the hachures will be, up to `min_spacing`. If terrain has a slope that is less than `min_slope`, no hachures will be drawn in that area. If it has a slope equal to or greater than `max_slope`, hachures will be at maximum density (spaced according to `min_spacing`).
 
 ## Generate Raster Derivaties
