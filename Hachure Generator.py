@@ -1,5 +1,6 @@
 import math
 import statistics
+import random
 
 from collections import defaultdict
 
@@ -23,21 +24,26 @@ from qgis.core import (
 from qgis import processing
 
 #============================USER PARAMETERS============================
-# Mind your units! A good starting min/max spacing is a few times the
-# pixel size of your DEM, then adjust from there.
+#leave these 3 values at 1 to retain script defaults. Raise/lower them
+#to adjust those defaults (i.e., max_hachure_density = 2 will cause the
+# densest portion of the hachures to be twice the default)
 
-min_spacing = 5  #in map units
-max_spacing = 5
+contour_density = 1
+min_hachure_density = 1
+max_hachure_density = 1
 
-contour_interval = 0.5 #in DEM z units
-
-min_slope = 1 #degrees
+min_slope = 15 #degrees
 max_slope = 40
 
 DEM = iface.activeLayer() #The layer of interest must be selected
 
 #============================PREPATORY WORK=============================
 #---------STEP 1: Get slope/aspect/contours using built in tools--------
+stats = DEM.dataProvider().bandStatistics(1)
+elevation_range = stats.maximumValue - stats.minimumValue
+contour_interval = elevation_range / 150 / contour_density
+#sets our default to 150 contour lines, adjusted by contour_density
+
 parameters = {
     'INPUT': DEM,
     'OUTPUT': 'TEMPORARY_OUTPUT'
@@ -57,8 +63,6 @@ line_contours = QgsVectorLayer(processing.run('gdal:contour',
 #--------STEP 2: Set up variables & prepare rasters for reading---------
 instance = QgsProject.instance()
 crs = instance.crs()
-spacing_range = max_spacing - min_spacing
-slope_range = max_slope - min_slope
 
 provider = slope_layer.dataProvider()
 extent = provider.extent()
@@ -74,6 +78,13 @@ cell_height = extent.height() / rows
 average_pixel_size = 0.5 * (slope_layer.rasterUnitsPerPixelX() +
                   slope_layer.rasterUnitsPerPixelY())
 jump_distance = average_pixel_size * 3
+
+min_spacing = average_pixel_size * 2 * min_hachure_density
+max_spacing = average_pixel_size * 6 * max_hachure_density
+
+spacing_range = max_spacing - min_spacing
+slope_range = max_slope - min_slope
+
 
 #===========================CLASS DEFINITIONS===========================
 #------Contour lines are used to check the spacing of the hachures------
@@ -131,7 +142,6 @@ class Contour:
 #----Segments are contour pieces used to space or generate hachures-----
 class Segment:
     def __init__(self,segFeature):
-        self.feature = segFeature
         self.geometry = segFeature.geometry()
         self.length = self.geometry.length()
         self.slope = self.slope()
@@ -143,10 +153,14 @@ class Segment:
         
         if self.slope < min_slope:
             self.status = 0
-        elif self.length < ideal_spacing(self.slope):
+        elif self.length < (ideal_spacing(self.slope) * 0.9):
             self.status = 1
-        elif self.length > ideal_spacing(self.slope) * 2:
+        elif self.length > (ideal_spacing(self.slope) * 2.2):
             self.status = 2
+        # The 0.9 and 2.2 above are thermostat controls. Instead of a
+        # line being "too short" when it exactly falls below its ideal
+        # spacing, we let it get a little tighter to avoid near-parallel
+        # hachures cycling on/off rapidly.
         
     def ring_list(self):
         return [self.geometry]
@@ -326,17 +340,13 @@ def subsequent_contour(contour):
     for seg in clip_all:
         to_clip.extend(seg.hachures)
 
-    for seg in too_short:      
+    for seg in too_short:
         hachures = seg.hachures
         if len(hachures) == 2:
             # Some segments won't touch enough hachures
-            lineOne = hachures[1].geometry().length()
-            lineTwo = hachures[0].geometry().length()
+            random.shuffle(hachures)
             
-            if lineOne > lineTwo:
-                to_clip.append(hachures[1])
-            else:
-                to_clip.append(hachures[0])
+            to_clip.append(hachures[0])
 
     # to_clip can have duplicates. A hachure may have too_short segments
     # on each side, and both of them choose that particular hachure as
@@ -413,9 +423,9 @@ def hachure_generator(segment_list):
         new_x = x + math.sin(math.radians(value)) * jump_distance
         new_y = y + math.cos(math.radians(value)) * jump_distance
         
-        line_coords += [(new_x,new_y)]    
+        line_coords += [(new_x,new_y)]
         
-        for i in range (0,150): 
+        for i in range(0,100):
             # this loop is a failsafe in case other checks below fail
             # to stop the hachure when they should
             
