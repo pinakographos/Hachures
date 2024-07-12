@@ -24,16 +24,21 @@ from qgis.core import (
 from qgis import processing
 
 #============================USER PARAMETERS============================
-#leave these 3 values at 1 to retain script defaults. Raise/lower them
-#to adjust those defaults (i.e., max_hachure_density = 2 will cause the
-# densest portion of the hachures to be twice the default)
+# These two params below are in DEM pixel units. So choosing 6 for the
+# max_hachure density means the script aims to make hachures 6 px apart
+# when the slope is at its minimum
 
-contour_density = 1
-min_hachure_density = 1
-max_hachure_density = 1
+min_hachure_spacing = 2
+max_hachure_spacing = 6
+
+spacing_checks = 100 
+# this parameter is how many times we check the hachure spacing
+# smaller number runs faster, but if lines are getting too close or too
+# far, it's not checking often enough
 
 min_slope = 15 #degrees
 max_slope = 40
+
 
 DEM = iface.activeLayer() #The layer of interest must be selected
 
@@ -41,8 +46,8 @@ DEM = iface.activeLayer() #The layer of interest must be selected
 #---------STEP 1: Get slope/aspect/contours using built in tools--------
 stats = DEM.dataProvider().bandStatistics(1)
 elevation_range = stats.maximumValue - stats.minimumValue
-contour_interval = elevation_range / 150 / contour_density
-#sets our default to 150 contour lines, adjusted by contour_density
+contour_interval = elevation_range / spacing_checks
+
 
 parameters = {
     'INPUT': DEM,
@@ -79,8 +84,8 @@ average_pixel_size = 0.5 * (slope_layer.rasterUnitsPerPixelX() +
                   slope_layer.rasterUnitsPerPixelY())
 jump_distance = average_pixel_size * 3
 
-min_spacing = average_pixel_size * 2 * min_hachure_density
-max_spacing = average_pixel_size * 6 * max_hachure_density
+min_spacing = average_pixel_size * min_hachure_density
+max_spacing = average_pixel_size * max_hachure_density
 
 spacing_range = max_spacing - min_spacing
 slope_range = max_slope - min_slope
