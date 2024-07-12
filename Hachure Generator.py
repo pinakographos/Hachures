@@ -1,5 +1,8 @@
 import math
 import statistics
+import time
+
+from collections import defaultdict
 
 from qgis.PyQt.QtCore import (
     QVariant
@@ -24,12 +27,12 @@ from qgis import processing
 # Mind your units! A good starting min/max spacing is a few times the
 # pixel size of your DEM, then adjust from there.
 
-min_spacing = 2  #in map units
-max_spacing = 6
+min_spacing = 5  #in map units
+max_spacing = 5
 
-contour_interval = 1 #in DEM z units
+contour_interval = 0.5 #in DEM z units
 
-min_slope = 15 #degrees
+min_slope = 1 #degrees
 max_slope = 40
 
 DEM = iface.activeLayer() #The layer of interest must be selected
@@ -46,10 +49,9 @@ aspect_layer = QgsRasterLayer(
     processing.run('qgis:aspect', parameters)['OUTPUT'],'Aspect')
 
 parameters['INTERVAL'] = contour_interval
+filled_contours = QgsVectorLayer(processing.run('gdal:contour_polygon', parameters)['OUTPUT'], "Contour Layer", "ogr")
+line_contours = QgsVectorLayer(processing.run('gdal:contour', parameters)['OUTPUT'], "Contour Layer", "ogr")
 
-contour_path = processing.run('gdal:contour_polygon', parameters)['OUTPUT']
-
-filled_contours = QgsVectorLayer(contour_path, "Contour Layer", "ogr")
 
 #--------STEP 2: Set up variables & prepare rasters for reading---------
 instance = QgsProject.instance()
@@ -75,9 +77,8 @@ jump_distance = average_pixel_size * 3
 #===========================CLASS DEFINITIONS===========================
 #------Contour lines are used to check the spacing of the hachures------
 class Contour:
-    def __init__(self,contour_feature,poly_geometry):
-        self.feat = contour_feature
-        self.geometry = contour_feature.geometry()
+    def __init__(self,contour_geometry,poly_geometry):
+        self.geometry = contour_geometry
         self.polygon = poly_geometry
         
     def ring_list(self):
@@ -326,10 +327,10 @@ def subsequent_contour(contour):
 
     for seg in too_short:      
         hachures = seg.hachures
-        if len(seg.hachures) == 2:
+        if len(hachures) == 2:
             # Some segments won't touch enough hachures
-            lineOne = hachures[0].geometry().length()
-            lineTwo = hachures[1].geometry().length()
+            lineOne = hachures[1].geometry().length()
+            lineTwo = hachures[0].geometry().length()
             
             if lineOne > lineTwo:
                 to_clip.append(hachures[1])
@@ -431,10 +432,6 @@ def hachure_generator(segment_list):
             value += 180
             new_x = x + math.sin(math.radians(value)) * jump_distance
             new_y = y + math.cos(math.radians(value)) * jump_distance
-            
-            if (new_x,new_y) in line_coords:
-
-                break
                 
             # Hachures often bounce back and forth in shallow slopes &
             # should stop. If lines are zig-zagging, every other point
@@ -583,23 +580,32 @@ for geom in contour_geometries[:-1]:
     # We drop the last one because it's going to be empty
     working_geometry = working_geometry.difference(geom)
     contour_differences.append(working_geometry)
+    
+#------------------STEP 4: Dissolve the contour lines-------------------
+contour_dict = defaultdict(list)
 
-#------------STEP 4: Make lines from the difference polygons------------
-contour_lines = []
-for geo in contour_differences:
-    if geo.isMultipart():
-        #pull out every ring used in every poly in this multipoly
-        all_rings = [ring for poly in geo.asMultiPolygon() for ring in poly]
-    else:
-        rings = geo.asPolygon()
-        all_rings = [ring for ring in rings]
+for feature in line_contours.getFeatures():
+    contour_dict[feature.attributeMap()['ELEV']].append(feature)
+    #this dict is now of the form {Elevation: [list of features]}
     
-    line_geometry = QgsGeometry.fromMultiPolylineXY(all_rings)
-    
-    line_feature = QgsFeature()
-    line_feature.setGeometry(line_geometry)
-    contour_lines.append(Contour(line_feature,geo))
-    # Our Contour stores the polygon it was made from for use in haircut
+keys = list(contour_dict.keys())
+keys.sort()
+
+# we need to sort these low-to-high so they match the order of the
+# contour_differences we just generated
+
+dissolved_lines = []
+for key in keys:
+    geometries = [f.geometry() for f in contour_dict[key]]
+    combined_geo = QgsGeometry.collectGeometry(geometries)
+    dissolved_lines.append(combined_geo)
+
+# then turn them into Contours for use by the main loop
+contour_lines = []    
+for dissolved_line,poly_geometry in zip(dissolved_lines,contour_differences):
+    contour_lines.append(Contour(dissolved_line,poly_geometry))
+
+#each Contour carrys a record of its corresponding poly for use by haircut
 
 instance.removeMapLayer(filled_contours) # no longer needed
                          
