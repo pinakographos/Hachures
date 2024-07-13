@@ -1,12 +1,13 @@
 # Hachures
 A QGIS method to generate automated hachure lines. Like these:
 
-![image](https://github.com/pinakographos/Hachures/assets/5448396/4b00b0da-652b-4a5b-ad4a-5857c175b8c6)
+<img width="1335" alt="image" src="https://github.com/user-attachments/assets/d4136616-3b73-42eb-8bbd-338f72bc249b">
+
 
 # Preamble
 This is version 1.5, which means hopefully the most severe bugs have been quashed. Meanwhile, if you are stuck, try the sample DEM (of Michigamme Mountain) that is included in this repo. It should succesfully generate hachures within several seconds on a modern computer using the default settings in the script.
 
-Thanks to Nyall Dawson for some significant efficiency gains!
+Thanks to Nyall Dawson for guiding me toward some significant efficiency gains!
 
 # Advice
 I'll lead with some of my advice on using the script, and then later on we'll talk about how it works. First off, **be patient**. This script can take a long time to run, depending on the settings. While a 1000 × 1000px raster with a handful of hachures may process in seconds, if you want a detailed set of lines on a large terrain, it could potentially run for a long time. Start small, and then work your way up to more detail and larger terrains once you get a sense of how long it will take.
@@ -22,7 +23,7 @@ Ok, let's dive into a high-level review of how all this works. My method, built 
 The user must select a DEM raster layer (`iface.activeLayer()`). The script comes with some default parameters, but the user may choose to adjust them:
 + `spacing_checks`: How many times the script will check that the hachures are properly spaced. Lowering this runs the script faster. But, it also makes hachure lines more likely to get closer or farther apart than they are supposed to. Behind the scenes, this parameter controls how many contour lines we generate across the vertical range of the DEM. Hachure spacing is checked every contour line.
 + `min_hachure_density` and `max_hachure_density`: These specify how close or how far apart we'd like our hachures to be. The units are the pixel size of the DEM.
-+ `min_slope` and `max_slope` specify what slope levels we'll consider in making those hachures. The script makes hachures more dense when the slope of the terrain is higher, and spaces them out farther on shallower terrain. The closer a slope gets toward `max_slope`, the denser the hachures will be, up to `min_spacing`. If terrain has a slope that is less than `min_slope`, no hachures will be drawn in that area. If it has a slope equal to or greater than `max_slope`, hachures will be at maximum density (spaced according to `min_spacing`).
++ `min_slope` and `max_slope` specify what slope levels we'll consider in making those hachures. The script makes hachures more dense when the slope of the terrain is higher, and spaces them out farther on shallower terrain. The closer a slope gets toward `max_slope`, the denser the hachures will be, up to `min_hachure_spacing`. If terrain has a slope that is less than `min_slope`, no hachures will be drawn in that area. If it has a slope equal to or greater than `max_slope`, hachures will be at maximum density (spaced according to `min_hachure_spacing`).
 
 ## Generate Raster Derivaties
 First off, we take our DEM and generate four derivaties:
@@ -31,7 +32,9 @@ First off, we take our DEM and generate four derivaties:
 3. Contour polygon layer
 4. Contour line layer
 For 3 & 4, the script will set the contour interval so that the number of contours generated matches `spacing_checks`.
-<img width="1472" alt="image" src="https://github.com/pinakographos/Hachures/assets/5448396/3bcf2980-1fd8-4a3e-acb5-ff8396d34b23">
+
+<img width="1322" alt="image" src="https://github.com/user-attachments/assets/b896f8df-1056-4eb9-8c9c-45e6be058db5">
+
 
 ## Contour Poly Reformatting
 Some retooling of our contours is needed before they are ready. First, the contour lines are dissolved based on their elevation, so that each elevation level has only one feature, which might contain multiple contour rings.
@@ -49,7 +52,7 @@ This is done in the script by creating a simple rectangle that matches the bound
 Now we are ready to begin hachure generation through the main loop of the script.
 
 ## Contour Splitting
-The script iterates through the contour lines, starting with the lowest-elevation one. We begin by dividing this contour line into chunks, each being `max_spacing * 3` in width (and remember, `max_hachure_spacing` is in units of the DEM's pixels, so that if the DEM pixel width is 12 meters for example, and `max_hachure_spacing` is 3, then `max_hachure_spacing` represents 36 meters). This choice of multiplying by 3 is somewhat arbitrary on my part, but the results seem to work pleasantly enough.
+The script iterates through the contour lines, starting with the lowest-elevation one. We begin by dividing this contour line into chunks, each being `max_hachure_spacing * 3` in width (and remember, `max_hachure_spacing` is in units of the DEM's pixels, so that if the DEM pixel width is 12 meters for example, and `max_hachure_spacing` is 3, then `max_hachure_spacing` represents 36 meters). This choice of multiplying by 3 is somewhat arbitrary on my part, but the results seem to work pleasantly enough.
 
 <img width="705" alt="image" src="https://github.com/pinakographos/Hachures/assets/5448396/b858a338-496d-400a-bed0-c5ae46d8c232">
 
