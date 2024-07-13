@@ -84,8 +84,8 @@ average_pixel_size = 0.5 * (slope_layer.rasterUnitsPerPixelX() +
                   slope_layer.rasterUnitsPerPixelY())
 jump_distance = average_pixel_size * 3
 
-min_spacing = average_pixel_size * min_hachure_density
-max_spacing = average_pixel_size * max_hachure_density
+min_spacing = average_pixel_size * min_hachure_spacing
+max_spacing = average_pixel_size * max_hachure_spacing
 
 spacing_range = max_spacing - min_spacing
 slope_range = max_slope - min_slope
@@ -430,7 +430,7 @@ def hachure_generator(segment_list):
         
         line_coords += [(new_x,new_y)]
         
-        for i in range(0,100):
+        for i in range(0,150):
             # this loop is a failsafe in case other checks below fail
             # to stop the hachure when they should
             
@@ -453,7 +453,7 @@ def hachure_generator(segment_list):
                 
             # Hachures often bounce back and forth in shallow slopes &
             # should stop. If lines are zig-zagging, every other point
-            # should be separated by only a small distance
+            # will be separated by only a small distance
 
             if (len(line_coords) > 3 and
                 dist(line_coords[-1], line_coords[-3])
@@ -465,7 +465,9 @@ def hachure_generator(segment_list):
 
             line_coords += [(new_x,new_y)]
             
-        feature_list.append(make_lines(line_coords))
+        if len(line_coords) > 1:
+            # if we stopped before we even got 2 points, don't bother
+            feature_list.append(make_lines(line_coords))
     
     return feature_list
 
@@ -646,9 +648,16 @@ for line in contour_lines:
 # We sometimes pick up errant duplicates, so let's clean the final list
 current_hachures = list(set(current_hachures))
 
-# Add add it to the map
+# Add it to the map & also add length attributes so user can filter
 hachureLayer = QgsVectorLayer('linestring','Hachures','memory')
 hachureLayer.setCrs(crs)
+
+field = QgsField('Length', QVariant.Double)
+hachureLayer.dataProvider().addAttributes([field])
+hachureLayer.updateFields()
+
+for feature in current_hachures:
+    feature.setAttributes([feature.geometry().length()])
 
 with edit(hachureLayer):
     hachureLayer.dataProvider().addFeatures(current_hachures)
