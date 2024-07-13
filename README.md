@@ -12,7 +12,7 @@ Thanks to Nyall Dawson for guiding me toward some significant efficiency gains!
 # Advice
 I'll lead with some of my advice on using the script, and then later on we'll talk about how it works. First off, **be patient**. This script can take a long time to run, depending on the settings. While a 1000 × 1000px raster with a handful of hachures may process in seconds, if you want a detailed set of lines on a large terrain, it could potentially run for a long time. Start small, and then work your way up to more detail and larger terrains once you get a sense of how long it will take.
 
-Second, you should have a reasonably **smooth terrain** to begin with. Hachures aren’t meant to show a huge amount of detail in a landform. They will gently bend if the terrain is smooth. If the terrain is detailed, the hachures will be jagged. I also note that smoothing the raster tends to speed the whole script, though I am not wholly sure why.
+Second, you should have a reasonably **smooth terrain** to begin with. Hachures aren’t meant to show a huge amount of detail in a landform. They will gently bend if the terrain is smooth. If the terrain is detailed, the hachures will be jagged. I also note that smoothing the raster tends to _significantly_ speed up the whole script, though I am not wholly sure why.
 
 Finally, I often find the resulting hachures look best if you filter out some of the smallest stubs.
 
@@ -21,27 +21,27 @@ Ok, let's dive into a high-level review of how all this works. My method, built 
 
 ## Initial Parameters
 The user must select a DEM raster layer (`iface.activeLayer()`). The script comes with some default parameters, but the user may choose to adjust them:
-+ `spacing_checks`: How many times the script will check that the hachures are properly spaced. Lowering this runs the script faster. But, it also makes hachure lines more likely to get closer or farther apart than they are supposed to. Behind the scenes, this parameter controls how many contour lines we generate across the vertical range of the DEM. Hachure spacing is checked every contour line.
++ `spacing_checks`: How many times the script will check that the hachures are properly spaced. Lowering this runs the script faster. But, it also makes hachure lines more likely to get closer or farther apart than they are supposed to, because they're not being checked often enough. Behind the scenes, this parameter controls how many contour lines we generate across the vertical range of the DEM. Hachure spacing is checked every contour line.
 + `min_hachure_density` and `max_hachure_density`: These specify how close or how far apart we'd like our hachures to be. The units are the pixel size of the DEM.
 + `min_slope` and `max_slope` specify what slope levels we'll consider in making those hachures. The script makes hachures more dense when the slope of the terrain is higher, and spaces them out farther on shallower terrain. The closer a slope gets toward `max_slope`, the denser the hachures will be, up to `min_hachure_spacing`. If terrain has a slope that is less than `min_slope`, no hachures will be drawn in that area. If it has a slope equal to or greater than `max_slope`, hachures will be at maximum density (spaced according to `min_hachure_spacing`).
 
 ## Generate Raster Derivaties
-First off, we take our DEM and generate four derivaties:
+First off, we take our DEM and generate four derivatives:
 1. Slope raster
 2. Aspect raster
 3. Contour polygon layer
 4. Contour line layer
+
 For 3 & 4, the script will set the contour interval so that the number of contours generated matches `spacing_checks`.
 
-<img width="1322" alt="image" src="https://github.com/user-attachments/assets/b896f8df-1056-4eb9-8c9c-45e6be058db5">
+<img width="1297" alt="image" src="https://github.com/user-attachments/assets/020ba424-edd4-484b-891e-a59709c9b3c9">
 
-
-## Contour Poly Reformatting
+## Contour Reformatting
 Some retooling of our contours is needed before they are ready. First, the contour lines are dissolved based on their elevation, so that each elevation level has only one feature, which might contain multiple contour rings.
 
 The script primarily uses these contour lines. But, there is one piece of information that they cannot provide, and which the script will need: for a given contour line, without any external information, you cannot tell which areas are _higher_ and which are _lower_ that the elevation of that line.
 
-To fix this, we take our contour polygons and do some processing. Initially, these polys show all elevations between two specific values. 
+To tackle this, we take our contour polygons and do some processing. Initially, these polys show all elevations between two specific values. 
 <img width="1331" alt="image" src="https://github.com/pinakographos/Hachures/assets/5448396/6018a802-2fc9-4de3-9904-d82edf11f7ed">
 
 However, for each contour level, we need to generate a polygon that shows all areas that are **higher** than that elevation.
@@ -103,7 +103,7 @@ Then we look through each contour segment, get its average slope, and once again
 
 <img width="508" alt="image" src="https://github.com/pinakographos/Hachures/assets/5448396/5b93119a-b06e-4b66-900f-9dff1cb81f50">
 
-It started at the outer contour and when it was checked against the next contour on the inside, that slope was too shallow and it was time to cut the line off, while some other lines nearby continued. This cut is made using the contour polygons we prepared earlier. Since our hachure passes through the contour, it can tell us which part of the hachure to delete and which to keep, because it encodes which areas are up-slope vs. down-slope of this hachure.
+It started at the lower contour and when it was checked against the next higher contour, that slope was too shallow and it was time to cut the line off, while some other lines nearby continued. This cut is made using the contour polygons we prepared earlier. Since our hachure passes through the contour, the polygon can tell us which part of the hachure to delete and which to keep, because it encodes which areas are up-slope vs. down-slope of this hachure.
 
 The script can also determine which contour segments are **too long**. If a segments touches 2 hachures and is longer than its preferred spacing, it means those hachures have drifted too far apart for their current slope. We need to start at least 1 new line along this segment. This is done much as it is in the section above: we split that segment into dashes based on its slope, and then begin new hachures at the center of each dash.
 
