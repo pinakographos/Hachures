@@ -48,9 +48,9 @@ stats = DEM.dataProvider().bandStatistics(1)
 elevation_range = stats.maximumValue - stats.minimumValue
 contour_interval = elevation_range / spacing_checks
 
-
 parameters = {
     'INPUT': DEM,
+    'BAND': 1,
     'OUTPUT': 'TEMPORARY_OUTPUT'
 }
 slope_layer = QgsRasterLayer(
@@ -67,7 +67,6 @@ line_contours = QgsVectorLayer(processing.run('gdal:contour',
 
 #--------STEP 2: Set up variables & prepare rasters for reading---------
 instance = QgsProject.instance()
-crs = instance.crs()
 
 provider = slope_layer.dataProvider()
 extent = provider.extent()
@@ -650,7 +649,7 @@ current_hachures = list(set(current_hachures))
 
 # Add it to the map & also add length attributes so user can filter
 hachureLayer = QgsVectorLayer('linestring','Hachures','memory')
-hachureLayer.setCrs(crs)
+hachureLayer.setCrs(DEM.crs())
 
 field = QgsField('Length', QVariant.Double)
 hachureLayer.dataProvider().addAttributes([field])
