@@ -1,3 +1,39 @@
+#============================USER PARAMETERS============================
+# These two params below are in DEM pixel units. So choosing 6 for the
+# max_hachure density means the script aims to make hachures 6 px apart
+# when the slope is at its minimum
+
+min_hachure_spacing = 2
+max_hachure_spacing = 6
+
+# this parameter is how many times we check the hachure spacing
+# smaller number runs faster, but if lines are getting too close or too
+# far, it's not checking often enough
+
+spacing_checks = 100
+
+# this is the relative slope value used. Values between 0 and 100 should
+# be entered. These are enventually converted to the actual slope values
+# found in the raster. A min_slope_val of 0 would be converted to the
+# lowest slope found in the terrain, and 100 would be converted to the
+# highest found.
+
+min_slope_val = 15 #0–100 scale
+max_slope_val = 60
+
+# this flag should either be True or False. If True, two hachure outputs
+# will be made: one which keeps the lines whole, and which splits them
+# into small chunks and adjusts the thickness of each chunk according
+# to the underlying slope. Setting this flag to True will increase your
+# processing time.
+
+thickness_layer = True
+
+DEM = iface.activeLayer() #The layer of interest must be selected
+
+#============================PREPATORY WORK=============================
+#--------STEP 0: Import various modules and such that are needed--------
+
 import math
 import statistics
 import random
@@ -23,34 +59,77 @@ from qgis.core import (
 )
 from qgis import processing
 
-#============================USER PARAMETERS============================
-# These two params below are in DEM pixel units. So choosing 6 for the
-# max_hachure density means the script aims to make hachures 6 px apart
-# when the slope is at its minimum
+# This function reports back any errors found later on
 
-min_hachure_spacing = 2
-max_hachure_spacing = 6
+def warn_user(error_type):
+    # Here are our various error messages and levels
+    # The format is ErrorNumber: (Text,Level)
+    
+    # Wanted to do multi-line strings here for readability, but
+    # everything I tried made the popups lose spaces
+    
+    error_dict = {
+        0: ('Done! Enjoy your freshly baked hachures!',
+            Qgis.Success),
+        1: ('No raster layer selected.',
+            Qgis.Critical),
+        2: ('min_slope_val must not be less than 0.',
+            Qgis.Critical),
+        3: ('min_slope_val must be less than max_slope_val.',
+            Qgis.Critical),
+        4: ('max_slope_val must not be greater than 0.',
+            Qgis.Critical),
+        5: ('min_hachure_spacing must be less than max_hachure_spacing.',
+            Qgis.Critical),
+        6: ('min_hachure_spacing must be greater than 0',
+            Qgis.Critical),
+        7: ('max_hachure_spacing must be greater than 0',
+            Qgis.Critical),
+        8: ('min_slope_val was 0.&nbsp;A higher value is recommended to leave flat, unhachured areas.',
+            Qgis.Warning),
+        9: ('spacing_checks is low. If hachures look too messy, consider raising spacing_checks value.',
+            Qgis.Warning),
+        10: ('spacing_checks is likely higher than it needs to be to yield clean hachures. Consider lowering this value to speed up processing time.',
+            Qgis.Warning),
+        11: ('No hachures were generated.',
+            Qgis.Critical)
+    }
+    
+    err = error_dict[error_type]
+    
+    iface.messageBar().pushMessage('Hachure Script',*err)
+    
+    if err[1] == Qgis.Critical:
+        raise Exception(err[0])
 
-spacing_checks = 100 
-# this parameter is how many times we check the hachure spacing
-# smaller number runs faster, but if lines are getting too close or too
-# far, it's not checking often enough
+#------------------STEP ½: Handling Basic Input Errors------------------
 
-min_slope = 15 #degrees
-max_slope = 40
+checks = [
+    (iface.activeLayer().type() != QgsMapLayer.RasterLayer, 1),
+    (min_slope_val < 0,2),
+    (min_slope_val >= max_slope_val,3),
+    (max_slope_val > 100,4),
+    (min_hachure_spacing >= max_hachure_spacing,5),
+    (min_hachure_spacing <= 0,6),
+    (max_hachure_spacing <= 0,7),
+    (min_slope_val == 0,8),
+    (spacing_checks < 25,9),
+    (spacing_checks > 200,10)
+]
 
+for condition,code in checks:
+    if condition:
+        warn_user(code)
+        break
 
-DEM = iface.activeLayer() #The layer of interest must be selected
-
-#============================PREPATORY WORK=============================
 #---------STEP 1: Get slope/aspect/contours using built in tools--------
 stats = DEM.dataProvider().bandStatistics(1)
 elevation_range = stats.maximumValue - stats.minimumValue
 contour_interval = elevation_range / spacing_checks
 
-
 parameters = {
     'INPUT': DEM,
+    'BAND': 1,
     'OUTPUT': 'TEMPORARY_OUTPUT'
 }
 slope_layer = QgsRasterLayer(
@@ -64,10 +143,17 @@ filled_contours = QgsVectorLayer(processing.run('gdal:contour_polygon',
 line_contours = QgsVectorLayer(processing.run('gdal:contour',
     parameters)['OUTPUT'], "Contour Layer", "ogr")
 
+#-----Convert min_slope_val & max_slope_val to actual slope values-----
+slope_stats = slope_layer.dataProvider().bandStatistics(1)
+slope_maximum = slope_stats.maximumValue
+slope_minimum = slope_stats.minimumValue
+slope_range = slope_maximum - slope_minimum
+
+min_slope = slope_range * (min_slope_val / 100) + slope_minimum
+max_slope = slope_range * (max_slope_val / 100) + slope_minimum
 
 #--------STEP 2: Set up variables & prepare rasters for reading---------
 instance = QgsProject.instance()
-crs = instance.crs()
 
 provider = slope_layer.dataProvider()
 extent = provider.extent()
@@ -220,7 +306,7 @@ def ideal_spacing(slope):
         # None indicates that slope is too shallow & needs no hachures
         return None
 
-    # Finds where the slop is in the range of min/max slope
+    # Finds where the slope is in the range of min/max slope
     # Then normalizes it to the range of min/max spacing
     slope_pct = (slope - min_slope) / slope_range
     spacing_qty = slope_pct * spacing_range
@@ -424,9 +510,8 @@ def hachure_generator(segment_list):
         
         #And here I try to recall 11th-grade trigonometry 
         
-        value += 180
-        new_x = x + math.sin(math.radians(value)) * jump_distance
-        new_y = y + math.cos(math.radians(value)) * jump_distance
+        new_x = x - math.sin(math.radians(value)) * jump_distance
+        new_y = y - math.cos(math.radians(value)) * jump_distance
         
         line_coords += [(new_x,new_y)]
         
@@ -648,18 +733,150 @@ for line in contour_lines:
 # We sometimes pick up errant duplicates, so let's clean the final list
 current_hachures = list(set(current_hachures))
 
+# Also occasionally hachure lines end up being multipart (if they cross
+# over a contour line that has a tight bend). So break those open.
+
+separated = []
+
+for hachure in current_hachures:
+    geom = hachure.geometry()
+    if geom.isMultipart():
+        parts = geom.asMultiPolyline()
+        for part in parts:
+            f = QgsFeature()
+            f.setGeometry(QgsGeometry.fromPolylineXY(part))
+            separated.append(f)
+    else:
+        separated.append(hachure)
+
+# We should filter out tiny stub features for a pleasant final result
+
+filtered = [f for f in separated
+            if f.geometry().length() > jump_distance * 1.5]
+
+# If something went wrong and we got no hachures, let the user know
+
+if filtered == None:
+    warn_user(11)
+
 # Add it to the map & also add length attributes so user can filter
-hachureLayer = QgsVectorLayer('linestring','Hachures','memory')
-hachureLayer.setCrs(crs)
+
+hachureLayer = QgsVectorLayer('linestring','Main Hachures','memory')
+hachureLayer.setCrs(DEM.crs())
 
 field = QgsField('Length', QVariant.Double)
 hachureLayer.dataProvider().addAttributes([field])
 hachureLayer.updateFields()
 
-for feature in current_hachures:
+for feature in separated:
     feature.setAttributes([feature.geometry().length()])
 
 with edit(hachureLayer):
-    hachureLayer.dataProvider().addFeatures(current_hachures)
+    hachureLayer.dataProvider().addFeatures(filtered)
     
 instance.addMapLayer(hachureLayer)
+
+#====================OPTIONAL SECTION: SPLIT HACHURES===================
+
+# If the user wants to also generate a layer of split-up hachures that
+# use their thickness to encode the slope, this will do that. Only if
+# the user parameter of thickness_layer was set True
+
+# this function splits up a hachure line feature
+def splitter(feature):
+    geo = feature.geometry()
+    
+    feat_length = geo.length()
+    
+    # Lines should be split evenly, so we don't have super-tiny stubs
+    # The jump_distance is our target length
+    
+    total_units = round(feat_length/ jump_distance)
+    
+    #this is how often we split the hachure
+    interval = feat_length / total_units 
+    
+    start = 0
+    end = interval
+    
+    output_features = []
+
+    for i in range(0,total_units):
+        line_substring = geo.constGet().curveSubstring(start,end)
+        new_feature = QgsFeature()
+        new_feature.setGeometry(line_substring)
+        output_features.append(new_feature)
+        start += interval
+        end += interval
+    
+    return output_features
+    
+def split_slope(item):
+    # Get the average slope under a given segment
+    
+    densified_line = item.geometry().densifyByDistance(average_pixel_size)
+    vertices = [(vertex.x(), vertex.y())
+                for vertex in densified_line.vertices()]
+    
+    row_col_coords = [xy_to_rc(c) for c in vertices]
+    
+    samples = [sample_raster(c,0) for c in row_col_coords]
+
+    return statistics.fmean(samples)
+
+# Ok, now let's set up a new layer to house our split hachures
+
+if thickness_layer is True:
+
+    splitHachureLayer = QgsVectorLayer('linestring','Split Hachures','memory')
+    splitHachureLayer.setCrs(DEM.crs())
+
+    field = QgsField('Slope', QVariant.Double)
+    splitHachureLayer.dataProvider().addAttributes([field])
+    splitHachureLayer.updateFields()
+
+    splits = []
+
+
+    # we then split the hachures
+    for feature in filtered:
+        splits.extend(splitter(feature))
+
+    # and assign them each the average slope in their zone
+    for feature in splits:
+        feature.setAttributes([split_slope(feature)])
+
+    with edit(splitHachureLayer):
+        splitHachureLayer.dataProvider().addFeatures(splits)
+        
+    instance.addMapLayer(splitHachureLayer)
+
+    # Now make them all black, and vary in size according to their slope
+    # ChatGPT wrote a lot of this for me because I had no knowledge of
+    # how to adjust symbol rendering in PyQGIS
+
+    # We start with a base black symbol
+    base_symbol = QgsLineSymbol.createSimple({
+        'color': 'black',
+        'width': '0.1mm'
+    })
+
+    # Then we set up a graduated symbol renderer tied to the slope field
+    renderer = QgsGraduatedSymbolRenderer()
+    renderer.setClassAttribute('Slope')
+    renderer.setMode(QgsGraduatedSymbolRenderer.EqualInterval)
+    renderer.setGraduatedMethod(Qgis.GraduatedMethod.Size)
+    renderer.setSourceSymbol(base_symbol)
+
+    # We set it for 50 classes, so it's practically unclassed
+    renderer.updateClasses(splitHachureLayer, 50)
+
+    # By default, 0.1 to 1.0mm will be fine. The user can tweak the layer
+    # afterwards to get the desired effect.
+
+    renderer.setSymbolSizes(0.1, 1.0)
+
+    splitHachureLayer.setRenderer(renderer)
+    splitHachureLayer.triggerRepaint()
+    
+warn_user(0)
