@@ -5,7 +5,7 @@ A QGIS method to generate automated hachure lines. Like these:
 
 
 # Preamble
-This is version 1.5, which means hopefully the most severe bugs have been quashed. Meanwhile, if you are stuck, try the sample DEM (of Michigamme Mountain) that is included in this repo. It should succesfully generate hachures within several seconds on a modern computer using the default settings in the script.
+This is version 2.0, which means hopefully the most severe bugs have been quashed. Meanwhile, if you are stuck, try the sample DEM (of Michigamme Mountain) that is included in this repo. It should succesfully generate hachures within several seconds on a modern computer using the default settings in the script.
 
 Thanks to Nyall Dawson for guiding me toward some significant efficiency gains!
 
@@ -23,7 +23,8 @@ Ok, let's dive into a high-level review of how all this works. My method, built 
 The user must select a DEM raster layer (`iface.activeLayer()`). The script comes with some default parameters, but the user may choose to adjust them:
 + `spacing_checks`: How many times the script will check that the hachures are properly spaced. Lowering this runs the script faster. But, it also makes hachure lines more likely to get closer or farther apart than they are supposed to, because they're not being checked often enough. Behind the scenes, this parameter controls how many contour lines we generate across the vertical range of the DEM. Hachure spacing is checked every contour line.
 + `min_hachure_density` and `max_hachure_density`: These specify how close or how far apart we'd like our hachures to be. The units are the pixel size of the DEM.
-+ `min_slope` and `max_slope` specify what slope levels we'll consider in making those hachures. The script makes hachures more dense when the slope of the terrain is higher, and spaces them out farther on shallower terrain. The closer a slope gets toward `max_slope`, the denser the hachures will be, up to `min_hachure_spacing`. If terrain has a slope that is less than `min_slope`, no hachures will be drawn in that area. If it has a slope equal to or greater than `max_slope`, hachures will be at maximum density (spaced according to `min_hachure_spacing`).
++ `min_slope_val` and `max_slope_val` specify what slope levels we'll consider in making those hachures. These are relative numbers that range from 0–100. 0 represents the lowest slope value found in the DEM. 100 represents the highest. The script makes hachures more dense when the slope of the terrain is higher, and spaces them out farther on shallower terrain. The closer a slope gets toward `max_slope_val`, the denser the hachures will be, up to `min_hachure_spacing`. If terrain has a slope that is less than `min_slope`, no hachures will be drawn in that area. If it has a slope equal to or greater than `max_slope_val`, hachures will be at maximum density (spaced according to `min_hachure_spacing`).
++ You may also set thickness_layer to True or to False, as you prefer. This generates a second layer in which line thickness varies based on slope. It takes more computation time, so is off by default.
 
 ## Generate Raster Derivaties
 First off, we take our DEM and generate four derivatives:
