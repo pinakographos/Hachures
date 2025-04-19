@@ -3,8 +3,8 @@
 # max_hachure density means the script aims to make hachures 6 px apart
 # when the slope is at its minimum
 
-min_hachure_spacing = 2
-max_hachure_spacing = 6
+min_hachure_spacing = 4
+max_hachure_spacing = 4
 
 # this parameter is how many times we check the hachure spacing
 # smaller number runs faster, but if lines are getting too close or too
@@ -79,13 +79,13 @@ def warn_user(error_type):
             Qgis.Critical),
         4: ('max_slope_val must not be greater than 0.',
             Qgis.Critical),
-        5: ('min_hachure_spacing must be less than max_hachure_spacing.',
+        5: ('min_hachure_spacing must not be more than max_hachure_spacing.',
             Qgis.Critical),
         6: ('min_hachure_spacing must be greater than 0',
             Qgis.Critical),
         7: ('max_hachure_spacing must be greater than 0',
             Qgis.Critical),
-        8: ('min_slope_val was 0.&nbsp;A higher value is recommended to leave flat, unhachured areas.',
+        8: ('min_slope_val was 0. A higher value is recommended to leave flat, unhachured areas.',
             Qgis.Warning),
         9: ('spacing_checks is low. If hachures look too messy, consider raising spacing_checks value.',
             Qgis.Warning),
@@ -109,7 +109,7 @@ checks = [
     (min_slope_val < 0,2),
     (min_slope_val >= max_slope_val,3),
     (max_slope_val > 100,4),
-    (min_hachure_spacing >= max_hachure_spacing,5),
+    (min_hachure_spacing > max_hachure_spacing,5),
     (min_hachure_spacing <= 0,6),
     (max_hachure_spacing <= 0,7),
     (min_slope_val == 0,8),
