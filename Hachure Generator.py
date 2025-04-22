@@ -3,14 +3,14 @@
 # max_hachure density means the script aims to make hachures 6 px apart
 # when the slope is at its minimum
 
-min_hachure_spacing = 4
-max_hachure_spacing = 4
+min_hachure_spacing = 2
+max_hachure_spacing = 6
 
 # this parameter is how many times we check the hachure spacing
 # smaller number runs faster, but if lines are getting too close or too
 # far, it's not checking often enough
 
-spacing_checks = 100
+spacing_checks = 125
 
 # this is the relative slope value used. Values between 0 and 100 should
 # be entered. These are enventually converted to the actual slope values
@@ -18,8 +18,8 @@ spacing_checks = 100
 # lowest slope found in the terrain, and 100 would be converted to the
 # highest found.
 
-min_slope_val = 15 #0–100 scale
-max_slope_val = 60
+min_slope_val = 20 #0–100 scale
+max_slope_val = 75
 
 # this flag should either be True or False. If True, two hachure outputs
 # will be made: one which keeps the lines whole, and which splits them
@@ -27,7 +27,7 @@ max_slope_val = 60
 # to the underlying slope. Setting this flag to True will increase your
 # processing time.
 
-thickness_layer = True
+thickness_layer = False
 
 DEM = iface.activeLayer() #The layer of interest must be selected
 
@@ -65,8 +65,8 @@ def warn_user(error_type):
     # Here are our various error messages and levels
     # The format is ErrorNumber: (Text,Level)
     
-    # Wanted to do multi-line strings here for readability, but
-    # everything I tried made the popups lose spaces
+    # For some reason spaces after a period or comma
+    # vanish, so &nbsp; is needed
     
     error_dict = {
         0: ('Done! Enjoy your freshly baked hachures!',
@@ -79,17 +79,22 @@ def warn_user(error_type):
             Qgis.Critical),
         4: ('max_slope_val must not be greater than 0.',
             Qgis.Critical),
-        5: ('min_hachure_spacing must not be more than max_hachure_spacing.',
+        5: ('min_hachure_spacing must not be more than '
+            'max_hachure_spacing.',
             Qgis.Critical),
         6: ('min_hachure_spacing must be greater than 0',
             Qgis.Critical),
         7: ('max_hachure_spacing must be greater than 0',
             Qgis.Critical),
-        8: ('min_slope_val was 0. A higher value is recommended to leave flat, unhachured areas.',
+        8: ('min_slope_val was 0.&nbspA higher value is recommended '
+            'to leave flat,&nbsp;unhachured areas.',
             Qgis.Warning),
-        9: ('spacing_checks is low. If hachures look too messy, consider raising spacing_checks value.',
+        9: ('spacing_checks is low.&nbsp;If hachures look too messy,'
+            '&nbsp;consider raising spacing_checks value.',
             Qgis.Warning),
-        10: ('spacing_checks is likely higher than it needs to be to yield clean hachures. Consider lowering this value to speed up processing time.',
+        10: ('spacing_checks is likely higher than it needs to be to '
+             'yield clean hachures.&nbsp;Consider lowering this value '
+             'to speed up processing time.',
             Qgis.Warning),
         11: ('No hachures were generated.',
             Qgis.Critical)
@@ -730,6 +735,11 @@ for line in contour_lines:
      else:
          first_contour(line)
 
+# If something went wrong and we got no hachures, let the user know
+
+if current_hachures == None:
+    warn_user(11)
+
 # We sometimes pick up errant duplicates, so let's clean the final list
 current_hachures = list(set(current_hachures))
 
@@ -753,11 +763,6 @@ for hachure in current_hachures:
 
 filtered = [f for f in separated
             if f.geometry().length() > jump_distance * 1.5]
-
-# If something went wrong and we got no hachures, let the user know
-
-if filtered == None:
-    warn_user(11)
 
 # Add it to the map & also add length attributes so user can filter
 
