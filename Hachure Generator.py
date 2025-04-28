@@ -97,6 +97,9 @@ def warn_user(error_type):
              'to speed up processing time.',
             Qgis.Warning),
         11: ('No hachures were generated.',
+            Qgis.Critical),
+        12: ('Raster has NULL values.&nbsp;Script is not yet able to'
+            ' handle these situations.',
             Qgis.Critical)
     }
     
@@ -119,7 +122,7 @@ checks = [
     (max_hachure_spacing <= 0,7),
     (min_slope_val == 0,8),
     (spacing_checks < 25,9),
-    (spacing_checks > 200,10)
+    (spacing_checks > 300,10)
 ]
 
 for condition,code in checks:
@@ -271,7 +274,15 @@ class Segment:
         
         samples = [sample_raster(c,0) for c in row_col_coords]
 
-        return statistics.fmean(samples)
+        # if we have null values in the raster, we'll get a nan
+        # at this point, bail out. The script isn't designed to
+        # handle these
+        nan_check = [a for a in samples if math.isnan(a) is True]
+        
+        if nan_check != []:
+            warn_user(12)
+        else:
+            return statistics.fmean(samples)
     
 #--------------CutPoints mark where a contour is to be cut--------------
 class CutPoint:
@@ -762,7 +773,7 @@ for hachure in current_hachures:
 # We should filter out tiny stub features for a pleasant final result
 
 filtered = [f for f in separated
-            if f.geometry().length() > jump_distance * 1.5]
+            if f.geometry().length() > min_spacing * 2]
 
 # Add it to the map & also add length attributes so user can filter
 
